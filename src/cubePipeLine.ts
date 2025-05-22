@@ -1,4 +1,4 @@
-import { shaderCode } from "./shadersCube";
+import shaderCode from "./shadersCube.wgsl?raw";
 
 export async function createCubePipeline(device:GPUDevice,format:GPUTextureFormat){
     const shaderModule = device.createShaderModule({ code: shaderCode });
@@ -33,6 +33,11 @@ export async function createCubePipeline(device:GPUDevice,format:GPUTextureForma
             //Con line-* definimos las lineas y con point-* definimos los puntos
             topology: 'triangle-list',
             cullMode: 'back',
+        },
+        depthStencil:{
+            format:'depth24plus',
+            depthWriteEnabled:true,
+            depthCompare:'less',
         },
         layout: 'auto',
     });

@@ -71,7 +71,13 @@ function frame() {
 
   const commandEncoder = device.createCommandEncoder();
   const textureView = context.getCurrentTexture().createView();
+  const depthTexture = device.createTexture({
+    size:[canvas.width,canvas.height,1],
+    format: 'depth24plus',
+    usage: GPUTextureUsage.RENDER_ATTACHMENT
+  });
 
+  const depthView = depthTexture.createView();
   //Aqui empezamos todo lo que queremos hacer en este renderizado
   const renderPass = commandEncoder.beginRenderPass({
     colorAttachments: [{
@@ -85,6 +91,12 @@ function frame() {
       //Aqui definimos lo que queremos que haga despues de dibujar, en este caso guardar (store)
       storeOp: 'store',
     }],
+    depthStencilAttachment:{
+      view:depthView,
+      depthLoadOp:'clear',
+      depthClearValue:1.0,
+      depthStoreOp:'store'
+    },
   });
   //Con esto seteamos la pipeline que queremos usar para renderizar
   renderPass.setPipeline(pipeline);

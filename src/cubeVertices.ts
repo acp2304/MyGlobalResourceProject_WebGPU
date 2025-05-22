@@ -1,26 +1,55 @@
 export const cubeVertices = new Float32Array([
-    //  X,    Y,    Z,     R,   G,   B
-    -1, -1,  1,    1,  0,  0,  // Frente abajo izquierda (rojo)
-     1, -1,  1,    0,  1,  0,  // Frente abajo derecha (verde)
-     1,  1,  1,    0,  0,  1,  // Frente arriba derecha (azul)
-    -1,  1,  1,    1,  1,  0,  // Frente arriba izquierda (amarillo)
-    -1, -1, -1,    1,  0,  1,  // Atrás abajo izquierda (magenta)
-     1, -1, -1,    0,  1,  1,  // Atrás abajo derecha (cian)
-     1,  1, -1,    1,  1,  1,  // Atrás arriba derecha (blanco)
-    -1,  1, -1,    0,  0,  0,  // Atrás arriba izquierda (negro)
-  ]);
-  
-  export const cubeIndices = new Uint16Array([
-    // Frente
-    0, 1, 2, 0, 2, 3,
-    // Atrás
-    4, 5, 6, 4, 6, 7,
-    // Izquierda
-    0, 3, 7, 0, 7, 4,
-    // Derecha
-    1, 2, 6, 1, 6, 5,
-    // Arriba
-    3, 2, 6, 3, 6, 7,
-    // Abajo
-    0, 1, 5, 0, 5, 4,
-  ]);
+  //  X,    Y,    Z,    R,  G,  B
+  // Frente (rojo)
+  -1, -1,  1,   1,  0,  0,  // 0
+   1, -1,  1,   1,  0,  0,  // 1
+   1,  1,  1,   1,  0,  0,  // 2
+  -1,  1,  1,   1,  0,  0,  // 3
+
+  // Atrás (verde)
+   1, -1, -1,   0,  1,  0,  // 4
+  -1, -1, -1,   0,  1,  0,  // 5
+  -1,  1, -1,   0,  1,  0,  // 6
+   1,  1, -1,   0,  1,  0,  // 7
+
+  // Izquierda (azul)
+  -1, -1,  1,   0,  0,  1,  // 8
+  -1,  1,  1,   0,  0,  1,  // 9
+  -1,  1, -1,   0,  0,  1,  // 10
+  -1, -1, -1,   0,  0,  1,  // 11
+
+  // Derecha (amarillo)
+   1, -1,  1,   1,  1,  0,  // 12
+   1,  1,  1,   1,  1,  0,  // 13
+   1,  1, -1,   1,  1,  0,  // 14
+   1, -1, -1,   1,  1,  0,  // 15
+
+  // Arriba (magenta)
+  -1,  1,  1,   1,  0,  1,  // 16
+   1,  1,  1,   1,  0,  1,  // 17
+   1,  1, -1,   1,  0,  1,  // 18
+  -1,  1, -1,   1,  0,  1,  // 19
+
+  // Abajo (cian)
+  -1, -1,  1,   0,  1,  1,  // 20
+   1, -1,  1,   0,  1,  1,  // 21
+   1, -1, -1,   0,  1,  1,  // 22
+  -1, -1, -1,   0,  1,  1,  // 23
+]);
+
+export const cubeIndices = new Uint16Array([
+  // Frente
+  0,  1,  2,   0,  2,  3,
+  // Atrás
+  4,  5,  6,   4,  6,  7,
+  // Izquierda
+  8,  9, 10,   8, 10, 11,
+  // Derecha (amarillo), ahora en CCW visto desde fuera
+  12, 14, 13,
+  12, 15, 14,
+
+  // Arriba
+  16, 17, 18,  16, 18, 19,
+  // Abajo
+  20, 21, 22,  20, 22, 23,
+]);
