@@ -10,13 +10,15 @@ export async function createCubePipeline(device:GPUDevice,format:GPUTextureForma
             buffers: [
             {
                 //Aqui definimos cuanta informacion viene en cada vertize a procesar, 3 floats para la posicion y 3 para el color
-                arrayStride: 24, // 3 pos + 3 color = 6 * 4 bytes
+                arrayStride: 36, // 3 pos + 3 color = 6 * 4 bytes
                 attributes: [
                 //Aqui es donde especificamos luego el location(0) en los shaders, es decir cada punto que tendra 24 bytes, los 3x4 12 priemros bytes definidos por el formato
                 //corresponden al punto establecido
                 { shaderLocation: 0, offset: 0, format: 'float32x3' },
                 //Entonces el location(1) correspondera al buffer offsetado con 12 bytes. 
                 { shaderLocation: 1, offset: 12, format: 'float32x3' },
+                //Aqui volvemos a hacer un offset para las normales
+                {shaderLocation:2, offset:24,format:'float32x3'},
                 ],
             },
             ],

@@ -24,6 +24,12 @@ export async function initWebGPU(canvas: HTMLCanvasElement) {
     throw new Error("Context is null.");
   }
   const format = navigator.gpu.getPreferredCanvasFormat();
+
+  // Ajustar resolución interna del canvas al tamaño CSS × DPR
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = Math.floor(canvas.clientWidth  * dpr);
+  canvas.height = Math.floor(canvas.clientHeight * dpr);
+
   // Pedimos el formato de color recomendado por el navegador para renderizar (normalmente "bgra8unorm")
   context.configure({
     device: device,
