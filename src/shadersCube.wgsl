@@ -26,7 +26,7 @@ fn vs_main(@location(0) position: vec3<f32>, @location(1) color: vec3<f32>, @loc
   let worldPos = model * vec4<f32>(position, 1.0);
   output.Position = vp * worldPos;
   output.vColor = color;
-  output.vNormal = normal;
+  output.vNormal = normalize((model * vec4<f32>(normal, 0.0)).xyz);
   return output;
 }
 
