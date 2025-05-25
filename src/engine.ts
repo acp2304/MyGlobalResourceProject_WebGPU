@@ -14,7 +14,7 @@ export class Engine {
   private cube!: Cube;
   private lightBuffer!: GPUBuffer;
   private lightBindGroup!: GPUBindGroup;
-
+  private cameraPosBindGroup!: GPUBindGroup;
   private depthTexture!: GPUTexture;
 
   constructor(private canvas: HTMLCanvasElement) {}
@@ -61,7 +61,10 @@ export class Engine {
 
     //Generamos uniform de luces
     // 6) Configurar luz direccional
-    const lightData = new Float32Array([0.5, 0.7, 1.0, 1.0]);
+
+    //El motivo por el que 
+
+    const lightData = new Float32Array([0.0, 1.0, -1.0, 1]);
     this.lightBuffer = this.device.createBuffer({
         size: lightData.byteLength,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -70,6 +73,18 @@ export class Engine {
     this.lightBindGroup = this.device.createBindGroup({
         layout: this.pipeline.getBindGroupLayout(2),
         entries: [{ binding: 0, resource: { buffer: this.lightBuffer } }],
+    });
+
+    // Creamos un uniform para pasar informacion de la posicion de la camara
+    const cameraPos = new Float32Array([...this.camera.eye,1]); 
+    const cameraPosBuffer = device.createBuffer({
+      size: cameraPos.byteLength,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(cameraPosBuffer, 0, cameraPos);
+    this.cameraPosBindGroup = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(3),  // ¡nuevo grupo 3!
+      entries: [{ binding: 0, resource: { buffer: cameraPosBuffer } }],
     });
 
     // 6) Resize listener
@@ -114,6 +129,7 @@ export class Engine {
     pass.setPipeline(this.pipeline);
     pass.setBindGroup(0, this.camera.bindGroup);
     pass.setBindGroup(2, this.lightBindGroup);
+    pass.setBindGroup(3,this.cameraPosBindGroup);
     this.cube.draw(pass);
     pass.end();
 
