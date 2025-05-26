@@ -3,6 +3,8 @@ import { createCubePipeline } from './cubePipeLine';
 import { Camera } from './camera';
 import { Cube } from './cube';
 import { cubeVertices, cubeIndices } from './cubeVertices';
+import { Icosahedron } from './icosahedron';
+import { SceneObject } from './sceneObject';
 
 export class Engine {
   private device!: GPUDevice;
@@ -11,7 +13,7 @@ export class Engine {
   private pipeline!: GPURenderPipeline;
 
   private camera!: Camera;
-  private cube!: Cube;
+  private sceneObject!: SceneObject;
   private lightBuffer!: GPUBuffer;
   private lightBindGroup!: GPUBindGroup;
   private cameraPosBindGroup!: GPUBindGroup;
@@ -52,19 +54,16 @@ export class Engine {
     this.camera = new Camera(this.device, cameraBuffer, cameraBindGroup, aspect);
 
     // 5) Crear cubo
-    this.cube = new Cube(
-      this.device,
-      this.pipeline,
-      cubeVertices,
-      cubeIndices
-    );
+    //this.sceneObject = new Cube(this.device,this.pipeline,cubeVertices,cubeIndices);
+    this.sceneObject = new Icosahedron(this.device,this.pipeline,3);
+
 
     //Generamos uniform de luces
     // 6) Configurar luz direccional
 
     //El motivo por el que 
 
-    const lightData = new Float32Array([0.0, 1.0, -1.0, 1]);
+    const lightData = new Float32Array([0.5, 1.0, 0.5, 2.0]);
     this.lightBuffer = this.device.createBuffer({
         size: lightData.byteLength,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -103,8 +102,8 @@ export class Engine {
 
     // 1) Update logic
     this.camera.update();
-    this.cube.updateModelTransform(seconds);
-
+    //this.cube.updateModelTransform(seconds);
+    this.sceneObject.updateModelTransform(seconds);
     // 2) Encode commands
     const encoder = this.device.createCommandEncoder();
     const colorView = this.context.getCurrentTexture().createView();
@@ -130,7 +129,8 @@ export class Engine {
     pass.setBindGroup(0, this.camera.bindGroup);
     pass.setBindGroup(2, this.lightBindGroup);
     pass.setBindGroup(3,this.cameraPosBindGroup);
-    this.cube.draw(pass);
+    //this.cube.draw(pass);
+    this.sceneObject.draw(pass);
     pass.end();
 
     // 4) Submit
