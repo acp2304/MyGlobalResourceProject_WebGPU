@@ -1,3 +1,4 @@
+
 // Engine.ts
 import { initWebGPU } from './initGPU';
 import { createPipelinesWithExplicitLayout, BGLs } from './pipelines';
@@ -10,8 +11,9 @@ export class Engine {
   private context!: GPUCanvasContext;
   private format!: GPUTextureFormat;
 
-  // Shared pipeline layout and pipelines
-  private pipelineLayout!: GPUPipelineLayout;
+  // Separate pipeline layouts and pipelines
+  private simplePipelineLayout!: GPUPipelineLayout;
+  private texturedPipelineLayout!: GPUPipelineLayout;
   private simplePipeline!: GPURenderPipeline;
   private texturedPipeline!: GPURenderPipeline;
 
@@ -48,13 +50,20 @@ export class Engine {
     this.context = context;
     this.configureDepthTexture();
 
-    // 2) Crear pipelines con layout explícito
-    const { layouts, simplePipeline, texturedPipeline, pipelineLayout } =
-      await createPipelinesWithExplicitLayout(device, format);
-    this.layouts          = layouts;
-    this.simplePipeline   = simplePipeline;
+    // 2) Crear pipelines con layouts separados
+    const { 
+      layouts, 
+      simplePipeline, 
+      texturedPipeline, 
+      simplePipelineLayout,
+      texturedPipelineLayout 
+    } = await createPipelinesWithExplicitLayout(device, format);
+    
+    this.layouts = layouts;
+    this.simplePipeline = simplePipeline;
     this.texturedPipeline = texturedPipeline;
-    this.pipelineLayout   = pipelineLayout;
+    this.simplePipelineLayout = simplePipelineLayout;
+    this.texturedPipelineLayout = texturedPipelineLayout;
 
     // 3) Cargar textura y crear bind-group 
     const { view, sampler } = await loadTexture(device, 'textures/earth.jpg');
@@ -66,7 +75,7 @@ export class Engine {
       ],
     });
 
-        // 4) Cámara + posición en mismo bind-group (grupo 0)
+    // 4) Cámara + posición en mismo bind-group (grupo 0)
     const aspect     = this.canvas.width / this.canvas.height;
     const camBufSize = 4*4*4;
     const camBuffer   = device.createBuffer({
@@ -74,6 +83,7 @@ export class Engine {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.camera = new Camera(device, camBuffer, null!, aspect);
+    
     // cameraPos buffer
     const camPosData = new Float32Array([...this.camera.eye, 1]);
     const camPosBuf  = device.createBuffer({
@@ -101,12 +111,11 @@ export class Engine {
       entries: [{ binding: 0, resource: { buffer: lightBuffer } }],
     });
 
-
-    // 7) Instanciar objetos de escena
+    // 6) Instanciar objetos de escena
     this.sceneSimple    = new Icosahedron(device, this.simplePipeline,   3);
-    this.sceneTextured  = new Icosahedron(device, this.texturedPipeline, 3);
+    this.sceneTextured  = new Icosahedron(device, this.texturedPipeline, 3,true);
 
-    // 8) Manejar resize
+    // 7) Manejar resize
     window.addEventListener('resize', () => this.onResize());
   }
 

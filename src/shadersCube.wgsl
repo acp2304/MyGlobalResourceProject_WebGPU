@@ -2,20 +2,23 @@
 struct Uniforms {
   mvpMatrix : mat4x4<f32>
 };
-// Grupo 0, binding 0: View-Projection
+
+// Grupo 0: Cámara (View-Projection + posición)
 @group(0) @binding(0)
 var<uniform> vp : mat4x4<f32>;
 
-// Grupo 1, binding 0: Model
+@group(0) @binding(1)
+var<uniform> cameraPos: vec4<f32>;
+
+// Grupo 1: Model matrix
 @group(1) @binding(0)
 var<uniform> model : mat4x4<f32>;
 
-// Grupo 2, binding 0: Luz direccional + intensidad (x,y,z = dirección, w = intensidad)
+// Grupo 2: Luz direccional + intensidad (x,y,z = dirección, w = intensidad)
 @group(2) @binding(0)
 var<uniform> light : vec4<f32>;
 
-@group(3) @binding(0)
-var<uniform> cameraPos: vec4<f32>;
+// ❌ REMOVIDO: @group(3) ya no se usa en el shader simple
 
 struct VertexOutput {
   @builtin(position) Position : vec4<f32>,
@@ -36,8 +39,7 @@ fn vs_main(@location(0) position: vec3<f32>, @location(1) color: vec3<f32>, @loc
   return output;
 }
 
-
-//Esto sirve para normalizar el color si se pasa de rango, con uint8 tenemos que declarar el color entre el rango 0,1
+//Esto sirve para normalizar el color si se pase de rango, con uint8 tenemos que declarar el color entre el rango 0,1
 fn toneMap_Reinhard(color: vec3<f32>) -> vec3<f32> {
     return color / (color + vec3(1.0));
 }
@@ -59,9 +61,7 @@ fn fs_main(@location(0) vColor: vec3<f32>,@location(1) vNormal:vec3<f32>,@locati
   let ambient  = ambientStrength * vColor;
 
   // 3) Specular (Phong)
-
   //Este es el vector direccion
-
   //Para saber la direccion que estoy calculando es: Punto final - Punto inicial
   let V = normalize(cameraPos.xyz - worldPos);
 
@@ -83,4 +83,3 @@ fn fs_main(@location(0) vColor: vec3<f32>,@location(1) vNormal:vec3<f32>,@locati
   let normalizedColor = toneMap_Reinhard(litColor);
   return vec4<f32>(normalizedColor, 1.0);
 }
-  //return vec4<f32>(vColor, 1.0);

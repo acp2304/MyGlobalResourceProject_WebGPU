@@ -29,7 +29,7 @@ export class Camera {
     private fovy: number = Math.PI / 4,
     private near: number = 0.1,
     private far: number = 100.0,
-    public eye: vec3 = [0, 6, 6],
+    public eye: vec3 = [0, 3, 3],
     private center: vec3 = [0, 0, 0],
     private up: vec3 = [0, 1, 0],
   ) {
