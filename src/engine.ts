@@ -100,7 +100,7 @@ export class Engine {
     });
 
     // 5) Configurar luz direccional (grupo 2)
-    const lightData = new Float32Array([0.5, 1.0, 0.5, 2.0]);
+    const lightData = new Float32Array([0.25, 1.0, 1.0, 2.0]);
     const lightBuffer = device.createBuffer({
       size: lightData.byteLength,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -112,7 +112,7 @@ export class Engine {
     });
 
     // 6) Instanciar objetos de escena
-    this.sceneSimple    = new Icosahedron(device, this.simplePipeline,   3);
+    this.sceneSimple    = new Icosahedron(device, this.simplePipeline,   3,false);
     this.sceneTextured  = new Icosahedron(device, this.texturedPipeline, 3,true);
 
     // 7) Manejar resize
@@ -125,7 +125,7 @@ export class Engine {
   }
 
   private frame(time: number): void {
-    const delta = time / 1000;
+    const delta = time / -1500;
     this.camera.update();
     (this.useTexture ? this.sceneTextured : this.sceneSimple)
       .updateModelTransform(delta);

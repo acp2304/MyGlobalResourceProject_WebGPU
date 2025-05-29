@@ -69,7 +69,7 @@ fn fs_main(@location(0) vColor: vec3<f32>,@location(1) vNormal:vec3<f32>,@locati
   // Si el vector de vista V se alinea con R, se genera el punto de máximo brillo especular.
   let R         = reflect(-L, N);
 
-  let specPower : f32     = 100;
+  let specPower : f32     = 5;
   //Aqui lo mismo que con Lambert, miramos como de coincidentes son los rayos, La potencia es para reducir los numero des escalar que estara entre [0,1] ya que el vector R y V estan normalizados
   //Contra mas alto sea el power mas pequeños se haran los numeros de forma exponencial. Por lo que un spec muy alto llevara los numero casi a 0, solo respetando los completamente incidentes,
   //reflexion casi perfecta de materiales por ejemplo metalicos. Contra mas bajo sera mas difuso. 

@@ -24,7 +24,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let R = reflect(-L, N);
   let ambient  = 0.1 * lightData.www;
   let diff     = max(dot(N, L), 0.0) * lightData.www;
-  let spec     = pow(max(dot(R, V), 0.0), 32.0) * 0.5 * lightData.www;
+  let spec     = pow(max(dot(R, V), 0.0), 5.0) * 1.0 * lightData.www;
   let color    = (ambient + diff + spec) * albedo;
   return vec4<f32>(color, 1.0);
 }

@@ -69,7 +69,8 @@ export async function loadTexture(
     minFilter: 'linear',
     mipmapFilter: 'linear',
     addressModeU: 'repeat',
-    addressModeV: 'repeat',
+    addressModeV: 'clamp-to-edge',
+    maxAnisotropy: 1,       
   });
 
   return { texture, view, sampler };

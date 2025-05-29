@@ -3,6 +3,9 @@
 import { SceneObject } from './sceneObject';
 import { generateIcosahedron } from './geometry';
 
+// Importar la función de corrección de seam
+import { fixTextureSeamProperly } from './fixTextureSeam';
+
 // Mejores coordenadas UV para icosaedro
 function calculateBetterUVs(vertices: Float32Array): Float32Array {
   const count = vertices.length / 6; // pos(3) + normal(3)
@@ -22,17 +25,18 @@ function calculateBetterUVs(vertices: Float32Array): Float32Array {
     const normY = py / length;
     const normZ = pz / length;
     
-    // Mapeo esférico mejorado
+    // Mapeo esférico mejorado para texturas terrestres
     // Usar atan2 para manejar mejor los cuadrantes
-    let u = Math.atan2(normZ, normX) / (2 * Math.PI) + 0.5;
+    //let u = 1.0 - (Math.atan2(-normX, normZ) / (2 * Math.PI) + 0.5);
+    let u = 1.0 - (Math.atan2(-normX, normZ) / (2 * Math.PI) + 0.5);
     let v = Math.asin(Math.max(-1, Math.min(1, normY))) / Math.PI + 0.5;
     
-    // Corregir el seam en u = 0/1
-    if (u < 0) u += 1;
-    if (u > 1) u -= 1;
+    // Corregir el seam en u = 0/1 con un pequeño margen
+    if (u < 0.001) u = 0.001;
+    if (u > 0.999) u = 0.999;
     
     // Asegurar que v esté en rango válido
-    v = Math.max(0, Math.min(1, v));
+    v = Math.max(0.001, Math.min(0.999, v));
     
     // Invertir V para que coincida con la orientación estándar de texturas
     v = 1.0 - v;
@@ -56,7 +60,12 @@ export class Icosahedron extends SceneObject {
     if (isTextured) {
       // Usar la función mejorada para calcular UVs
       const vertsWithUVs = calculateBetterUVs(raw.vertices);
-      this.initializeBuffers(vertsWithUVs, raw.indices);
+      
+      // Corregir el seam de textura
+      const { vertices: fixedVertices, indices: fixedIndices } = 
+        fixTextureSeamProperly(vertsWithUVs, raw.indices);
+      
+      this.initializeBuffers(fixedVertices, fixedIndices);
     } else {
       // Formato: [pos(3), color(3), norm(3)] para pipeline simple
       const count = raw.vertices.length / 6;
@@ -76,4 +85,4 @@ export class Icosahedron extends SceneObject {
 }
 
 // Exportar la función por si quieres usarla en otros lugares
-//export { calculateBetterUVs };
+export { calculateBetterUVs };
