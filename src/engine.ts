@@ -1,10 +1,11 @@
-
-// Engine.ts
+// Engine.ts - Solo cambiando la parte de luz
 import { initWebGPU } from './initGPU';
 import { createPipelinesWithExplicitLayout, BGLs } from './pipelines';
 import { loadTexture } from './utils/loadTexture';
 import { Camera } from './camera';
 import { Icosahedron } from './icosahedron';
+import { createCurrentLight, createSunLight, SimpleLight } from './light'; // ✅ NUEVO
+import { TestMeshFactory, TestMesh } from './mesh-test';
 
 export class Engine {
   private device!: GPUDevice;
@@ -21,8 +22,8 @@ export class Engine {
   private layouts!: BGLs;
 
   // Shared bind-groups
-  private cameraBG!: GPUBindGroup;
-  private lightBG!:  GPUBindGroup;
+  private camera!: Camera;         // ✅ CAMBIADO: ahora Camera en lugar de GPUBindGroup
+  private light!: SimpleLight;      // ✅ CAMBIADO: ahora es SimpleLight en lugar de GPUBindGroup
   private camPosBG!: GPUBindGroup;
   private texBG!:    GPUBindGroup;
 
@@ -30,8 +31,7 @@ export class Engine {
   private sceneSimple!:  Icosahedron;
   private sceneTextured!: Icosahedron;
 
-  // Camera controller
-  private camera!: Camera;
+  private testMesh?: TestMesh;
 
   // Depth buffer
   private depthTexture!: GPUTexture;
@@ -76,44 +76,33 @@ export class Engine {
     });
 
     // 4) Cámara + posición en mismo bind-group (grupo 0)
-    const aspect     = this.canvas.width / this.canvas.height;
-    const camBufSize = 4*4*4;
-    const camBuffer   = device.createBuffer({
-      size: camBufSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    this.camera = new Camera(device, camBuffer, null!, aspect);
-    
-    // cameraPos buffer
-    const camPosData = new Float32Array([...this.camera.eye, 1]);
-    const camPosBuf  = device.createBuffer({
-      size: camPosData.byteLength,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    const aspect = this.canvas.width / this.canvas.height;
+    this.camera = new Camera(
+      device,
+      layouts.cameraBGL,  // El bind group layout del grupo 0
+      aspect,
+      Math.PI / 4,        // fovy
+      0.1,                // near
+      100.0,              // far
+      [0, 1, 3],          // eye position
+      [0, 0, 0],          // look at center
+      [0, 1, 0]           // up vector
+    );
 
-    this.cameraBG = device.createBindGroup({
-      layout: layouts.cameraBGL,  // grupo 0
-      entries: [
-        { binding: 0, resource: { buffer: camBuffer } },
-        { binding: 1, resource: { buffer: camPosBuf } },
-      ],
-    });
-
-    // 5) Configurar luz direccional (grupo 2)
-    const lightData = new Float32Array([0.25, 1.0, 1.0, 2.0]);
-    const lightBuffer = device.createBuffer({
-      size: lightData.byteLength,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(lightBuffer, 0, lightData);
-    this.lightBG = device.createBindGroup({
-      layout: layouts.lightBGL,
-      entries: [{ binding: 0, resource: { buffer: lightBuffer } }],
-    });
+    // ✅ 5) NUEVO: Configurar luz usando la clase SimpleLight
+    this.light = createSunLight(device, layouts.lightBGL);
 
     // 6) Instanciar objetos de escena
-    this.sceneSimple    = new Icosahedron(device, this.simplePipeline,   3,false);
-    this.sceneTextured  = new Icosahedron(device, this.texturedPipeline, 3,true);
+    this.sceneSimple    = new Icosahedron(device, this.simplePipeline,   3, false);
+    this.sceneTextured  = new Icosahedron(device, this.texturedPipeline, 3, true);
+
+        // ✅ NUEVO - crear objeto de prueba con nuevo sistema
+    this.testMesh = TestMeshFactory.createTexturedIcosahedron(
+      device, 
+      this.texturedPipeline, 
+      1  // Menos subdivisiones para diferenciar visualmente
+    );
+
 
     // 7) Manejar resize
     window.addEventListener('resize', () => this.onResize());
@@ -129,6 +118,11 @@ export class Engine {
     this.camera.update();
     (this.useTexture ? this.sceneTextured : this.sceneSimple)
       .updateModelTransform(delta);
+
+    // ✅ NUEVO - actualizar objeto de prueba
+    if (this.testMesh) {
+      this.testMesh.updateModelTransform(delta * 0.3); // Más lento para diferenciar
+    }
 
     const encoder = this.device.createCommandEncoder();
     const colorView = this.context.getCurrentTexture().createView();
@@ -154,16 +148,19 @@ export class Engine {
       ? this.texturedPipeline
       : this.simplePipeline
     );
-    pass.setBindGroup(0, this.cameraBG);
-    pass.setBindGroup(2, this.lightBG);
+    pass.setBindGroup(0, this.camera.getBindGroup());
+    pass.setBindGroup(2, this.light.getBindGroup()); // ✅ CAMBIADO: ahora usa .getBindGroup()
     if (this.useTexture) pass.setBindGroup(3, this.texBG);
 
     // Dibujar objeto
     const sceneObj = this.useTexture
       ? this.sceneTextured
       : this.sceneSimple;
-    sceneObj.draw(pass);
-
+    //sceneObj.draw(pass);
+    // ✅ NUEVO - dibujar TAMBIÉN el objeto de prueba
+    if (this.testMesh && this.useTexture) {
+      this.testMesh.draw(pass);
+    }
     pass.end();
     this.device.queue.submit([encoder.finish()]);
     requestAnimationFrame((t) => this.frame(t));
@@ -188,7 +185,25 @@ export class Engine {
       format: this.format,
       alphaMode: 'opaque',
     });
-    this.camera.update({ aspect: this.canvas.width / this.canvas.height });
+    
+    // ✅ CAMBIADO: actualización de aspecto más simple
+    const newAspect = this.canvas.width / this.canvas.height;
+    this.camera.update({ aspect: newAspect });
+    
     this.configureDepthTexture();
+  }
+
+  // ✅ NUEVO: Métodos públicos para controlar la cámara
+  public setCameraPosition(x: number, y: number, z: number): void {
+    this.camera.setPosition(x, y, z);
+  }
+
+  // ✅ NUEVO: Métodos públicos para controlar la luz
+  public setLightDirection(x: number, y: number, z: number): void {
+    this.light.setDirection(x, y, z);
+  }
+
+  public setLightIntensity(intensity: number): void {
+    this.light.setIntensity(intensity);
   }
 }

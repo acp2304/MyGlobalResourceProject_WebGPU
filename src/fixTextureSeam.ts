@@ -30,7 +30,7 @@ export function fixTextureSeamProperly(
       Math.abs(u0 - u2) > 0.5;
     
     if (seamCrossing) {
-      console.log(`Triángulo ${i/3} cruza el seam: U=[${u0.toFixed(3)}, ${u1.toFixed(3)}, ${u2.toFixed(3)}]`);
+      //console.log(`Triángulo ${i/3} cruza el seam: U=[${u0.toFixed(3)}, ${u1.toFixed(3)}, ${u2.toFixed(3)}]`);
       
       // Duplicar vértices y ajustar coordenadas U
       const newTriangleIndices = [i0, i1, i2];
@@ -53,7 +53,7 @@ export function fixTextureSeamProperly(
           newTriangleIndices[j] = nextVertexIndex;
           nextVertexIndex++;
           
-          console.log(`  Duplicado vértice ${originalIndex} -> ${nextVertexIndex-1}, U: ${u} -> ${u + 1.0}`);
+          //console.log(`  Duplicado vértice ${originalIndex} -> ${nextVertexIndex-1}, U: ${u} -> ${u + 1.0}`);
         }
       }
       
@@ -64,7 +64,7 @@ export function fixTextureSeamProperly(
     }
   }
   
-  console.log(`Vértices originales: ${vertexCount}, nuevos: ${newVertices.length / stride}`);
+  //console.log(`Vértices originales: ${vertexCount}, nuevos: ${newVertices.length / stride}`);
   
   // Convertir de vuelta a typed arrays
   const finalVertices = new Float32Array(newVertices);

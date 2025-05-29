@@ -22,9 +22,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let L = normalize(-lightData.xyz);
   let V = normalize(cameraPos.xyz - in.vWorldPos);
   let R = reflect(-L, N);
-  let ambient  = 0.1 * lightData.www;
+  let ambient  = 0.25 * lightData.www;
   let diff     = max(dot(N, L), 0.0) * lightData.www;
-  let spec     = pow(max(dot(R, V), 0.0), 5.0) * 1.0 * lightData.www;
+  let spec     = pow(max(dot(R, V), 0.0), 64.0) * 0.1 * lightData.www;
   let color    = (ambient + diff + spec) * albedo;
   return vec4<f32>(color, 1.0);
 }
