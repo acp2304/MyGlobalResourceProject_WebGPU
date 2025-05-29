@@ -1,148 +1,166 @@
+// Engine.ts
 import { initWebGPU } from './initGPU';
-import { createCubePipeline } from './cubePipeLine';
+import { createPipelinesWithExplicitLayout, BGLs } from './pipelines';
+import { loadTexture } from './utils/loadTexture';
 import { Camera } from './camera';
-import { Cube } from './cube';
-import { cubeVertices, cubeIndices } from './cubeVertices';
 import { Icosahedron } from './icosahedron';
-import { SceneObject } from './sceneObject';
 
 export class Engine {
   private device!: GPUDevice;
   private context!: GPUCanvasContext;
   private format!: GPUTextureFormat;
-  private pipeline!: GPURenderPipeline;
 
+  // Shared pipeline layout and pipelines
+  private pipelineLayout!: GPUPipelineLayout;
+  private simplePipeline!: GPURenderPipeline;
+  private texturedPipeline!: GPURenderPipeline;
+
+  // Bind group layouts
+  private layouts!: BGLs;
+
+  // Shared bind-groups
+  private cameraBG!: GPUBindGroup;
+  private lightBG!:  GPUBindGroup;
+  private camPosBG!: GPUBindGroup;
+  private texBG!:    GPUBindGroup;
+
+  // Scene objects
+  private sceneSimple!:  Icosahedron;
+  private sceneTextured!: Icosahedron;
+
+  // Camera controller
   private camera!: Camera;
-  private sceneObject!: SceneObject;
-  private lightBuffer!: GPUBuffer;
-  private lightBindGroup!: GPUBindGroup;
-  private cameraPosBindGroup!: GPUBindGroup;
+
+  // Depth buffer
   private depthTexture!: GPUTexture;
+
+  // Toggle between simple and textured rendering
+  public useTexture = true;
 
   constructor(private canvas: HTMLCanvasElement) {}
 
-  /**
-   * Inicializa WebGPU, pipeline, cámara y escena principal (cubo).
-   */
+  /** Inicializa WebGPU, pipelines, bind-groups y escena */
   public async init(): Promise<void> {
-    // 1) Init WebGPU
+    // 1) Inicialización básica
     const { device, format, context } = await initWebGPU(this.canvas);
-
-    this.device = device;
-    this.format = format;
+    this.device  = device;
+    this.format  = format;
     this.context = context;
-
-
-    // 2) Depth texture
     this.configureDepthTexture();
 
-    // 3) Crear pipeline
-    const { pipeline } = await createCubePipeline(this.device, this.format);
-    this.pipeline = pipeline;
+    // 2) Crear pipelines con layout explícito
+    const { layouts, simplePipeline, texturedPipeline, pipelineLayout } =
+      await createPipelinesWithExplicitLayout(device, format);
+    this.layouts          = layouts;
+    this.simplePipeline   = simplePipeline;
+    this.texturedPipeline = texturedPipeline;
+    this.pipelineLayout   = pipelineLayout;
 
-    // 4) Crear cámara
-    const aspect = this.canvas.width / this.canvas.height;
-    const matrixSize = 4 * 4 * 4;
-    const cameraBuffer = this.device.createBuffer({
-      size: matrixSize,
+    // 3) Cargar textura y crear bind-group 
+    const { view, sampler } = await loadTexture(device, 'textures/earth.jpg');
+    this.texBG = device.createBindGroup({
+      layout: layouts.texBGL,
+      entries: [
+        { binding: 0, resource: view    },
+        { binding: 1, resource: sampler },
+      ],
+    });
+
+        // 4) Cámara + posición en mismo bind-group (grupo 0)
+    const aspect     = this.canvas.width / this.canvas.height;
+    const camBufSize = 4*4*4;
+    const camBuffer   = device.createBuffer({
+      size: camBufSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    const cameraBindGroup = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: cameraBuffer } }],
+    this.camera = new Camera(device, camBuffer, null!, aspect);
+    // cameraPos buffer
+    const camPosData = new Float32Array([...this.camera.eye, 1]);
+    const camPosBuf  = device.createBuffer({
+      size: camPosData.byteLength,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.camera = new Camera(this.device, cameraBuffer, cameraBindGroup, aspect);
 
-    // 5) Crear cubo
-    //this.sceneObject = new Cube(this.device,this.pipeline,cubeVertices,cubeIndices);
-    this.sceneObject = new Icosahedron(this.device,this.pipeline,3);
+    this.cameraBG = device.createBindGroup({
+      layout: layouts.cameraBGL,  // grupo 0
+      entries: [
+        { binding: 0, resource: { buffer: camBuffer } },
+        { binding: 1, resource: { buffer: camPosBuf } },
+      ],
+    });
 
-
-    //Generamos uniform de luces
-    // 6) Configurar luz direccional
-
-    //El motivo por el que 
-
+    // 5) Configurar luz direccional (grupo 2)
     const lightData = new Float32Array([0.5, 1.0, 0.5, 2.0]);
-    this.lightBuffer = this.device.createBuffer({
-        size: lightData.byteLength,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    this.device.queue.writeBuffer(this.lightBuffer, 0, lightData);
-    this.lightBindGroup = this.device.createBindGroup({
-        layout: this.pipeline.getBindGroupLayout(2),
-        entries: [{ binding: 0, resource: { buffer: this.lightBuffer } }],
-    });
-
-    // Creamos un uniform para pasar informacion de la posicion de la camara
-    const cameraPos = new Float32Array([...this.camera.eye,1]); 
-    const cameraPosBuffer = device.createBuffer({
-      size: cameraPos.byteLength,
+    const lightBuffer = device.createBuffer({
+      size: lightData.byteLength,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(cameraPosBuffer, 0, cameraPos);
-    this.cameraPosBindGroup = device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(3),  // ¡nuevo grupo 3!
-      entries: [{ binding: 0, resource: { buffer: cameraPosBuffer } }],
+    device.queue.writeBuffer(lightBuffer, 0, lightData);
+    this.lightBG = device.createBindGroup({
+      layout: layouts.lightBGL,
+      entries: [{ binding: 0, resource: { buffer: lightBuffer } }],
     });
 
-    // 6) Resize listener
+
+    // 7) Instanciar objetos de escena
+    this.sceneSimple    = new Icosahedron(device, this.simplePipeline,   3);
+    this.sceneTextured  = new Icosahedron(device, this.texturedPipeline, 3);
+
+    // 8) Manejar resize
     window.addEventListener('resize', () => this.onResize());
   }
 
-  /**
-   * Inicia el bucle de render.
-   */
+  /** Inicia el bucle de renderizado */
   public start(): void {
     requestAnimationFrame((t) => this.frame(t));
   }
 
   private frame(time: number): void {
-    const seconds = time / 1000;
-
-    // 1) Update logic
+    const delta = time / 1000;
     this.camera.update();
-    //this.cube.updateModelTransform(seconds);
-    this.sceneObject.updateModelTransform(seconds);
-    // 2) Encode commands
+    (this.useTexture ? this.sceneTextured : this.sceneSimple)
+      .updateModelTransform(delta);
+
     const encoder = this.device.createCommandEncoder();
     const colorView = this.context.getCurrentTexture().createView();
     const depthView = this.depthTexture.createView();
 
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
-        view: colorView,
-        loadOp: 'clear',
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        storeOp: 'store',
+        view:      colorView,
+        loadOp:    'clear',
+        clearValue:{ r:0, g:0, b:0, a:1 },
+        storeOp:   'store',
       }],
       depthStencilAttachment: {
-        view: depthView,
-        depthLoadOp: 'clear',
-        depthClearValue: 1.0,
-        depthStoreOp: 'store',
+        view:              depthView,
+        depthLoadOp:       'clear',
+        depthClearValue:   1.0,
+        depthStoreOp:      'store',
       },
     });
 
-    // 3) Draw
-    pass.setPipeline(this.pipeline);
-    pass.setBindGroup(0, this.camera.bindGroup);
-    pass.setBindGroup(2, this.lightBindGroup);
-    pass.setBindGroup(3,this.cameraPosBindGroup);
-    //this.cube.draw(pass);
-    this.sceneObject.draw(pass);
+    // Bind-groups compartidos
+    pass.setPipeline(this.useTexture
+      ? this.texturedPipeline
+      : this.simplePipeline
+    );
+    pass.setBindGroup(0, this.cameraBG);
+    pass.setBindGroup(2, this.lightBG);
+    if (this.useTexture) pass.setBindGroup(3, this.texBG);
+
+    // Dibujar objeto
+    const sceneObj = this.useTexture
+      ? this.sceneTextured
+      : this.sceneSimple;
+    sceneObj.draw(pass);
+
     pass.end();
-
-    // 4) Submit
     this.device.queue.submit([encoder.finish()]);
-
-    // 5) Next frame
     requestAnimationFrame((t) => this.frame(t));
   }
 
-  /**
-   * (Re)configura la textura de profundidad al tamaño del canvas.
-   */
+  /** (Re)configura la textura de profundidad al tamaño del canvas */
   private configureDepthTexture(): void {
     const size = [this.canvas.width, this.canvas.height, 1] as const;
     this.depthTexture = this.device.createTexture({
@@ -152,22 +170,16 @@ export class Engine {
     });
   }
 
-  /**
-   * Handler de resize: actualiza cámara, depthTexture y contexto.
-   */
+  /** Ajusta cámara, contexto y depth texture en resize */
   private onResize(): void {
-    // Ajustar tamaño del canvas si necesario
-    this.canvas.width = this.canvas.clientWidth * devicePixelRatio;
+    this.canvas.width  = this.canvas.clientWidth  * devicePixelRatio;
     this.canvas.height = this.canvas.clientHeight * devicePixelRatio;
-
-    // Reconfigurar contexto (importante para DPI)
-    this.context.configure({ device: this.device, format: this.format, alphaMode: 'opaque' });
-
-    // Actualizar cámara
-    const aspect = this.canvas.width / this.canvas.height;
-    this.camera.update({ aspect });
-
-    // Reconfigurar depth texture
+    this.context.configure({
+      device: this.device,
+      format: this.format,
+      alphaMode: 'opaque',
+    });
+    this.camera.update({ aspect: this.canvas.width / this.canvas.height });
     this.configureDepthTexture();
   }
 }
