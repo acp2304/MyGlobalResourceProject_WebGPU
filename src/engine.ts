@@ -1,11 +1,11 @@
-// Engine.ts - Solo cambiando la parte de luz
+// src/engine.ts - Engine actualizado con el nuevo sistema de Mesh
+
 import { initWebGPU } from './initGPU';
 import { createPipelinesWithExplicitLayout, BGLs } from './pipelines';
 import { loadTexture } from './utils/loadTexture';
 import { Camera } from './camera';
-import { Icosahedron } from './icosahedron';
-import { createCurrentLight, createSunLight, SimpleLight } from './light'; // ✅ NUEVO
-import { TestMeshFactory, TestMesh } from './mesh-test';
+import { createCurrentLight, createSunLight, SimpleLight } from './light';
+import { Mesh, MeshFactory } from './mesh'; // ✅ NUEVO: Importar sistema definitivo
 
 export class Engine {
   private device!: GPUDevice;
@@ -22,16 +22,13 @@ export class Engine {
   private layouts!: BGLs;
 
   // Shared bind-groups
-  private camera!: Camera;         // ✅ CAMBIADO: ahora Camera en lugar de GPUBindGroup
-  private light!: SimpleLight;      // ✅ CAMBIADO: ahora es SimpleLight en lugar de GPUBindGroup
-  private camPosBG!: GPUBindGroup;
-  private texBG!:    GPUBindGroup;
+  private camera!: Camera;
+  private light!: SimpleLight;
+  private texBG!: GPUBindGroup;
 
-  // Scene objects
-  private sceneSimple!:  Icosahedron;
-  private sceneTextured!: Icosahedron;
-
-  private testMesh?: TestMesh;
+  // Scene objects usando el nuevo sistema
+  private sceneSimple!: Mesh;    // ✅ CAMBIADO: Mesh en lugar de Icosahedron
+  private sceneTextured!: Mesh;  // ✅ CAMBIADO: Mesh en lugar de Icosahedron
 
   // Depth buffer
   private depthTexture!: GPUTexture;
@@ -75,11 +72,11 @@ export class Engine {
       ],
     });
 
-    // 4) Cámara + posición en mismo bind-group (grupo 0)
+    // 4) Cámara
     const aspect = this.canvas.width / this.canvas.height;
     this.camera = new Camera(
       device,
-      layouts.cameraBGL,  // El bind group layout del grupo 0
+      layouts.cameraBGL,
       aspect,
       Math.PI / 4,        // fovy
       0.1,                // near
@@ -89,20 +86,21 @@ export class Engine {
       [0, 1, 0]           // up vector
     );
 
-    // ✅ 5) NUEVO: Configurar luz usando la clase SimpleLight
+    // 5) Configurar luz
     this.light = createSunLight(device, layouts.lightBGL);
 
-    // 6) Instanciar objetos de escena
-    this.sceneSimple    = new Icosahedron(device, this.simplePipeline,   3, false);
-    this.sceneTextured  = new Icosahedron(device, this.texturedPipeline, 3, true);
-
-        // ✅ NUEVO - crear objeto de prueba con nuevo sistema
-    this.testMesh = TestMeshFactory.createTexturedIcosahedron(
+    // 6) ✅ NUEVO: Instanciar objetos usando MeshFactory
+    this.sceneSimple = MeshFactory.createColoredIcosahedron(
+      device, 
+      this.simplePipeline, 
+      3
+    );
+    
+    this.sceneTextured = MeshFactory.createTexturedIcosahedron(
       device, 
       this.texturedPipeline, 
-      1  // Menos subdivisiones para diferenciar visualmente
+      3
     );
-
 
     // 7) Manejar resize
     window.addEventListener('resize', () => this.onResize());
@@ -115,54 +113,52 @@ export class Engine {
 
   private frame(time: number): void {
     const delta = time / -1500;
+    
+    // Actualizar cámara
     this.camera.update();
-    (this.useTexture ? this.sceneTextured : this.sceneSimple)
-      .updateModelTransform(delta);
+    
+    // Actualizar transformación del objeto activo
+    const activeScene = this.useTexture ? this.sceneTextured : this.sceneSimple;
+    activeScene.updateModelTransform(delta);
 
-    // ✅ NUEVO - actualizar objeto de prueba
-    if (this.testMesh) {
-      this.testMesh.updateModelTransform(delta * 0.3); // Más lento para diferenciar
-    }
-
+    // Crear command encoder
     const encoder = this.device.createCommandEncoder();
     const colorView = this.context.getCurrentTexture().createView();
     const depthView = this.depthTexture.createView();
 
+    // Configurar render pass
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
-        view:      colorView,
-        loadOp:    'clear',
-        clearValue:{ r:0, g:0, b:0, a:1 },
-        storeOp:   'store',
+        view: colorView,
+        loadOp: 'clear',
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        storeOp: 'store',
       }],
       depthStencilAttachment: {
-        view:              depthView,
-        depthLoadOp:       'clear',
-        depthClearValue:   1.0,
-        depthStoreOp:      'store',
+        view: depthView,
+        depthLoadOp: 'clear',
+        depthClearValue: 1.0,
+        depthStoreOp: 'store',
       },
     });
 
-    // Bind-groups compartidos
-    pass.setPipeline(this.useTexture
-      ? this.texturedPipeline
-      : this.simplePipeline
-    );
+    // Configurar pipeline y bind groups compartidos
+    pass.setPipeline(this.useTexture ? this.texturedPipeline : this.simplePipeline);
     pass.setBindGroup(0, this.camera.getBindGroup());
-    pass.setBindGroup(2, this.light.getBindGroup()); // ✅ CAMBIADO: ahora usa .getBindGroup()
-    if (this.useTexture) pass.setBindGroup(3, this.texBG);
-
-    // Dibujar objeto
-    const sceneObj = this.useTexture
-      ? this.sceneTextured
-      : this.sceneSimple;
-    //sceneObj.draw(pass);
-    // ✅ NUEVO - dibujar TAMBIÉN el objeto de prueba
-    if (this.testMesh && this.useTexture) {
-      this.testMesh.draw(pass);
+    pass.setBindGroup(2, this.light.getBindGroup());
+    
+    // Bind group de textura solo si es necesario
+    if (this.useTexture) {
+      pass.setBindGroup(3, this.texBG);
     }
+
+    // Dibujar objeto activo
+    activeScene.draw(pass);
+
     pass.end();
     this.device.queue.submit([encoder.finish()]);
+    
+    // Continuar loop
     requestAnimationFrame((t) => this.frame(t));
   }
 
@@ -186,24 +182,51 @@ export class Engine {
       alphaMode: 'opaque',
     });
     
-    // ✅ CAMBIADO: actualización de aspecto más simple
+    // Actualizar aspecto de la cámara
     const newAspect = this.canvas.width / this.canvas.height;
     this.camera.update({ aspect: newAspect });
     
     this.configureDepthTexture();
   }
 
-  // ✅ NUEVO: Métodos públicos para controlar la cámara
+  // Métodos públicos para controlar la cámara
   public setCameraPosition(x: number, y: number, z: number): void {
     this.camera.setPosition(x, y, z);
   }
 
-  // ✅ NUEVO: Métodos públicos para controlar la luz
+  // Métodos públicos para controlar la luz
   public setLightDirection(x: number, y: number, z: number): void {
     this.light.setDirection(x, y, z);
   }
 
   public setLightIntensity(intensity: number): void {
     this.light.setIntensity(intensity);
+  }
+
+  // ✅ NUEVO: Método para cambiar subdivisiones dinámicamente
+  public setSubdivisions(subdivisions: number): void {
+    // Destruir meshes anteriores
+    this.sceneSimple.destroy();
+    this.sceneTextured.destroy();
+    
+    // Crear nuevos meshes con las subdivisiones especificadas
+    this.sceneSimple = MeshFactory.createColoredIcosahedron(
+      this.device, 
+      this.simplePipeline, 
+      subdivisions
+    );
+    
+    this.sceneTextured = MeshFactory.createTexturedIcosahedron(
+      this.device, 
+      this.texturedPipeline, 
+      subdivisions
+    );
+  }
+
+  // Cleanup
+  public destroy(): void {
+    this.sceneSimple?.destroy();
+    this.sceneTextured?.destroy();
+    this.depthTexture?.destroy();
   }
 }

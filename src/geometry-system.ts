@@ -1,16 +1,15 @@
-// src/geometry-system.ts - Nueva arquitectura (imports corregidos)
+// src/geometry-system.ts - Arquitectura mejorada con inicialización diferida
 
-import { generateIcosahedron } from './geometry'; // Tu archivo actual
-import { calculateBetterUVs } from './icosahedron'; // Tu función actual  
-import { fixTextureSeamProperly } from './fixTextureSeam'; // Tu función actual
+import { generateIcosahedron } from './geometry';
+import { fixTextureSeamProperly } from './fixTextureSeam';
 
 export interface VertexLayout {
-  stride: number;           // bytes por vértice
+  stride: number;
   attributes: {
     location: number;
     offset: number;
     format: GPUVertexFormat;
-    name: string;          // 'position', 'normal', 'uv', 'color'
+    name: string;
   }[];
 }
 
@@ -20,20 +19,45 @@ export abstract class Geometry {
   public vertexLayout!: VertexLayout;
   public vertexCount: number = 0;
   public indexCount: number = 0;
+  
+  private _initialized: boolean = false;
 
   constructor() {
-    this.generateVertices();
+    // NO llamamos a generateVertices aquí
   }
 
   /**
-   * Genera los datos de vértices e índices específicos de cada geometría
+   * Inicializa la geometría. Debe llamarse después de que las propiedades
+   * de la clase derivada hayan sido establecidas.
    */
-  protected abstract generateVertices(): void;
+  protected initialize(): void {
+    if (this._initialized) {
+      console.warn('Geometry already initialized');
+      return;
+    }
+    
+    try {
+      this.generateVertices();
+      this._initialized = true;
+    } catch (error) {
+      console.error('🚨 ERROR en generateVertices():', error);
+      throw error;
+    }
+  }
 
   /**
-   * Obtiene el descriptor de vertex buffer para WebGPU
+   * Verifica que la geometría esté inicializada antes de usarla
    */
+  private ensureInitialized(): void {
+    if (!this._initialized) {
+      throw new Error('Geometry not initialized. Call initialize() first.');
+    }
+  }
+
+  protected abstract generateVertices(): void;
+
   getVertexBufferDescriptor(): GPUVertexBufferLayout {
+    this.ensureInitialized();
     return {
       arrayStride: this.vertexLayout.stride,
       attributes: this.vertexLayout.attributes.map(attr => ({
@@ -44,14 +68,24 @@ export abstract class Geometry {
     };
   }
 
-  /**
-   * Crea los buffers GPU para esta geometría
-   */
   createBuffers(device: GPUDevice): {
     vertexBuffer: GPUBuffer;
     indexBuffer: GPUBuffer;
   } {
-    // Vertex buffer
+    this.ensureInitialized();
+    
+    // Verificación adicional de seguridad
+    if (!this.vertices || !this.indices) {
+      throw new Error('Geometry vertices or indices are not initialized');
+    }
+    
+    console.log('📦 Creando buffers:', {
+      vertexSize: this.vertices.byteLength,
+      indexSize: this.indices.byteLength,
+      vertexCount: this.vertexCount,
+      indexCount: this.indexCount
+    });
+    
     const vertexBuffer = device.createBuffer({
       size: this.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX,
@@ -60,7 +94,6 @@ export abstract class Geometry {
     new Float32Array(vertexBuffer.getMappedRange()).set(this.vertices);
     vertexBuffer.unmap();
 
-    // Index buffer
     const indexBuffer = device.createBuffer({
       size: this.indices.byteLength,
       usage: GPUBufferUsage.INDEX,
@@ -76,28 +109,38 @@ export abstract class Geometry {
     return { vertexBuffer, indexBuffer };
   }
 
-  /**
-   * Obtiene el formato de índices para WebGPU
-   */
   getIndexFormat(): GPUIndexFormat {
+    this.ensureInitialized();
     return this.indices instanceof Uint32Array ? 'uint32' : 'uint16';
   }
 }
 
-/**
- * Geometría de icosaedro (versión nueva, coexiste con la antigua)
- */
 export class IcosahedronGeometry extends Geometry {
+  private radius: number;
+  private subdivisions: number;
+  private useTextureCoords: boolean;
+
   constructor(
-    private radius: number = 1.0,
-    private subdivisions: number = 2,
-    private useTextureCoords: boolean = true
+    radius: number = 1.0,
+    subdivisions: number = 2,
+    useTextureCoords: boolean = true
   ) {
     super();
+    this.radius = radius;
+    this.subdivisions = subdivisions;
+    this.useTextureCoords = useTextureCoords;
+    
+    // Ahora sí podemos inicializar con las propiedades correctamente establecidas
+    this.initialize();
   }
 
   protected generateVertices(): void {
-    // Usar tu función existente
+    console.log('🔧 Generando icosaedro:', {
+      radius: this.radius,
+      subdivisions: this.subdivisions,
+      useTextureCoords: this.useTextureCoords
+    });
+
     const rawGeometry = generateIcosahedron(this.subdivisions);
 
     if (this.useTextureCoords) {
@@ -108,7 +151,8 @@ export class IcosahedronGeometry extends Geometry {
   }
 
   private setupTexturedLayout(rawGeometry: any): void {
-    // Layout: position(3) + normal(3) + uv(2)
+    console.log('📐 Configurando layout con texturas');
+    
     this.vertexLayout = {
       stride: 8 * 4, // 8 floats * 4 bytes
       attributes: [
@@ -118,21 +162,10 @@ export class IcosahedronGeometry extends Geometry {
       ],
     };
 
-    // Usar tu función de UV mapping existente
     this.vertices = calculateBetterUVs(rawGeometry.vertices);
-    console.log('Primeros 3 vértices del sistema ORIGINAL:');
-    for (let i = 0; i < 3; i++) {
-    const offset = i * 8;
-    console.log(`Vértice original ${i}:`, {
-        position: [this.vertices[offset], this.vertices[offset+1], this.vertices[offset+2]],
-        normal: [this.vertices[offset+3], this.vertices[offset+4], this.vertices[offset+5]],
-        uv: [this.vertices[offset+6], this.vertices[offset+7]]
-    });
-    }
-    // Aplicar corrección de seam
+    
     const { vertices: fixedVertices, indices: fixedIndices } = 
       fixTextureSeamProperly(this.vertices, rawGeometry.indices);
-    
     this.vertices = fixedVertices;
     this.indices = fixedIndices;
     
@@ -141,7 +174,8 @@ export class IcosahedronGeometry extends Geometry {
   }
 
   private setupColoredLayout(rawGeometry: any): void {
-    // Layout: position(3) + color(3) + normal(3)
+    console.log('🎨 Configurando layout con colores');
+    
     this.vertexLayout = {
       stride: 9 * 4, // 9 floats * 4 bytes
       attributes: [
@@ -151,7 +185,6 @@ export class IcosahedronGeometry extends Geometry {
       ],
     };
 
-    // Convertir de [pos(3), norm(3)] a [pos(3), color(3), norm(3)]
     const count = rawGeometry.vertices.length / 6;
     this.vertices = new Float32Array(count * 9);
     
@@ -173,13 +206,46 @@ export class IcosahedronGeometry extends Geometry {
   }
 }
 
-// Factory para crear geometrías comunes
-export class GeometryFactory {
-  static createIcosahedronTextured(subdivisions: number = 2): IcosahedronGeometry {
-    return new IcosahedronGeometry(1.0, subdivisions, true);
-  }
+// Importar la función de corrección de seam
+//import { fixTextureSeamProperly } from './fixTextureSeam';
 
-  static createIcosahedronColored(subdivisions: number = 2): IcosahedronGeometry {
-    return new IcosahedronGeometry(1.0, subdivisions, false);
+// Mejores coordenadas UV para icosaedro
+function calculateBetterUVs(vertices: Float32Array): Float32Array {
+  const count = vertices.length / 6; // pos(3) + normal(3)
+  const result = new Float32Array(count * 8); // pos(3) + normal(3) + uv(2)
+  
+  for (let i = 0; i < count; i++) {
+    const px = vertices[i * 6 + 0];
+    const py = vertices[i * 6 + 1];
+    const pz = vertices[i * 6 + 2];
+    const nx = vertices[i * 6 + 3];
+    const ny = vertices[i * 6 + 4];
+    const nz = vertices[i * 6 + 5];
+    
+    // Normalizar la posición para obtener coordenadas en la esfera unitaria
+    const length = Math.sqrt(px * px + py * py + pz * pz);
+    const normX = px / length;
+    const normY = py / length;
+    const normZ = pz / length;
+    
+    // Mapeo esférico mejorado para texturas terrestres
+    // Usar atan2 para manejar mejor los cuadrantes
+    //let u = 1.0 - (Math.atan2(-normX, normZ) / (2 * Math.PI) + 0.5);
+    let u = 1.0 - (Math.atan2(-normX, normZ) / (2 * Math.PI) + 0.5);
+    let v = Math.asin(Math.max(-1, Math.min(1, normY))) / Math.PI + 0.5;
+    
+    // Corregir el seam en u = 0/1 con un pequeño margen
+    if (u < 0.001) u = 0.001;
+    if (u > 0.999) u = 0.999;
+    
+    // Asegurar que v esté en rango válido
+    v = Math.max(0.001, Math.min(0.999, v));
+    
+    // Invertir V para que coincida con la orientación estándar de texturas
+    v = 1.0 - v;
+    
+    result.set([px, py, pz, nx, ny, nz, u, v], i * 8);
   }
+  
+  return result;
 }

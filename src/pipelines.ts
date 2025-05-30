@@ -1,7 +1,8 @@
+// pipelines.ts
 import shaderCode from './shadersCube.wgsl?raw';
 import commonVert   from './common.vert.wgsl?raw';
 import texturedFrag from './textured.frag.wgsl?raw';
-// pipelines.ts
+
 export type BGLs = {
   cameraBGL: GPUBindGroupLayout;
   modelBGL:  GPUBindGroupLayout;
@@ -14,11 +15,12 @@ export async function createPipelinesWithExplicitLayout(
   format: GPUTextureFormat
 ): Promise<{
   layouts:        BGLs;
-  pipelineLayout: GPUPipelineLayout;
+  simplePipelineLayout: GPUPipelineLayout;
+  texturedPipelineLayout: GPUPipelineLayout;
   simplePipeline: GPURenderPipeline;
   texturedPipeline: GPURenderPipeline;
 }> {
-    // 1) Creamos y guardamos cada BGL
+  // 1) Creamos y guardamos cada BGL
   const cameraBGL = device.createBindGroupLayout({
     entries: [
       { binding: 0, visibility: GPUShaderStage.VERTEX,   buffer: { type: 'uniform' }}, // viewProj
@@ -33,24 +35,28 @@ export async function createPipelinesWithExplicitLayout(
   });
   const texBGL = device.createBindGroupLayout({
     entries: [
-      { binding:    0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-      { binding:    1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
     ],
   });
 
-  // 2) PipelineLayout con esos BGLs
-  const pipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [cameraBGL, modelBGL, lightBGL, texBGL],
+  // 2) Layouts separados
+  const simplePipelineLayout = device.createPipelineLayout({
+    bindGroupLayouts: [cameraBGL, modelBGL, lightBGL], // Sin texBGL
   });
 
-  // 3) Shaders (omito carga raw por brevedad)
+  const texturedPipelineLayout = device.createPipelineLayout({
+    bindGroupLayouts: [cameraBGL, modelBGL, lightBGL, texBGL], // Con texBGL
+  });
+
+  // 3) Shaders
   const cubeShader   = device.createShaderModule({ code: shaderCode });
   const vsTextured   = device.createShaderModule({ code: commonVert });
   const fsTextured   = device.createShaderModule({ code: texturedFrag});
 
-  // 4) Pipeline “simple” (Phong const-color)
+  // 4) Pipeline "simple" (sin texturas)
   const simplePipeline = device.createRenderPipeline({
-    layout: pipelineLayout,
+    layout: simplePipelineLayout, // Layout sin texturas
     vertex: {
       module:     cubeShader,
       entryPoint: 'vs_main',
@@ -72,9 +78,9 @@ export async function createPipelinesWithExplicitLayout(
     depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
   });
 
-  // 5) Pipeline “texturizado + Phong”
+  // 5) Pipeline "texturizado"
   const texturedPipeline = device.createRenderPipeline({
-    layout: pipelineLayout,
+    layout: texturedPipelineLayout, // Layout con texturas
     vertex: {
       module:     vsTextured,
       entryPoint: 'vs_main',
@@ -98,7 +104,8 @@ export async function createPipelinesWithExplicitLayout(
 
   return {
     layouts: { cameraBGL, modelBGL, lightBGL, texBGL },
-    pipelineLayout,
+    simplePipelineLayout,
+    texturedPipelineLayout,
     simplePipeline,
     texturedPipeline,
   };
