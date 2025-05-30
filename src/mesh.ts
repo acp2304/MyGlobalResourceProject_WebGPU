@@ -2,9 +2,10 @@
 
 import { mat4 } from 'gl-matrix';
 import { Geometry } from './geometry-system';
-import { IcosahedronGeometry } from './geometry-system';
+import { Material } from './material';
+import {IcosahedronGeometry} from './geometry-system'
 /**
- * Clase Mesh que combina geometría con transformación y renderizado.
+ * Clase Mesh que combina geometría, material y transformación.
  * Esta es la versión final que reemplaza tanto SceneObject como TestMesh.
  */
 export class Mesh {
@@ -17,7 +18,7 @@ export class Mesh {
   constructor(
     private device: GPUDevice,
     private geometry: Geometry,
-    private pipeline: GPURenderPipeline
+    private material: Material
   ) {
     // Crear buffers usando la geometría
     const { vertexBuffer, indexBuffer } = geometry.createBuffers(device);
@@ -33,12 +34,20 @@ export class Mesh {
 
     // Bind group para matriz de modelo (grupo 1, binding 0)
     this.modelBindGroup = device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(1),
+      layout: material.getPipeline().getBindGroupLayout(1),
       entries: [{
         binding: 0,
         resource: { buffer: this.modelUniformBuffer }
       }],
     });
+    
+    // Verificar que la geometría sea compatible con el material
+    const requiredLayout = material.getRequiredVertexLayout();
+    const geometryLayout = geometry.vertexLayout;
+    
+    if (requiredLayout.stride !== geometryLayout.stride) {
+      console.warn('⚠️ Geometry vertex layout may not match material requirements');
+    }
   }
 
   /**
@@ -86,8 +95,16 @@ export class Mesh {
    * Renderiza el mesh
    */
   draw(pass: GPURenderPassEncoder): void {
-    pass.setPipeline(this.pipeline);
+    // El material configura el pipeline
+    pass.setPipeline(this.material.getPipeline());
+    
+    // Configurar bind groups propios del material (ej: texturas)
+    this.material.bind(pass);
+    
+    // Configurar bind group del modelo
     pass.setBindGroup(1, this.modelBindGroup);
+    
+    // Configurar geometría
     pass.setVertexBuffer(0, this.vertexBuffer);
     pass.setIndexBuffer(this.indexBuffer, this.geometry.getIndexFormat());
     pass.drawIndexed(this.geometry.indexCount);
@@ -107,8 +124,12 @@ export class Mesh {
     return this.geometry;
   }
 
+  getMaterial(): Material {
+    return this.material;
+  }
+
   getPipeline(): GPURenderPipeline {
-    return this.pipeline;
+    return this.material.getPipeline();
   }
 
   getModelMatrix(): mat4 {
@@ -117,7 +138,7 @@ export class Mesh {
 }
 
 /**
- * Factory para crear meshes con diferentes geometrías
+ * Factory para crear meshes con diferentes geometrías y materiales
  */
 export class MeshFactory {
   /**
@@ -125,12 +146,12 @@ export class MeshFactory {
    */
   static createTexturedIcosahedron(
     device: GPUDevice, 
-    pipeline: GPURenderPipeline, 
+    material: Material,
     subdivisions: number = 3
   ): Mesh {
     // Importación dinámica para evitar dependencias circulares
     const geometry = new IcosahedronGeometry(1.0, subdivisions, true);
-    return new Mesh(device, geometry, pipeline);
+    return new Mesh(device, geometry, material);
   }
 
   /**
@@ -138,21 +159,21 @@ export class MeshFactory {
    */
   static createColoredIcosahedron(
     device: GPUDevice, 
-    pipeline: GPURenderPipeline, 
+    material: Material,
     subdivisions: number = 2
   ): Mesh {
     const geometry = new IcosahedronGeometry(1.0, subdivisions, false);
-    return new Mesh(device, geometry, pipeline);
+    return new Mesh(device, geometry, material);
   }
 
   /**
-   * Crea un mesh con geometría personalizada
+   * Crea un mesh con geometría y material personalizados
    */
-  static createFromGeometry(
+  static createFromComponents(
     device: GPUDevice,
-    pipeline: GPURenderPipeline,
-    geometry: Geometry
+    geometry: Geometry,
+    material: Material
   ): Mesh {
-    return new Mesh(device, geometry, pipeline);
+    return new Mesh(device, geometry, material);
   }
 }
