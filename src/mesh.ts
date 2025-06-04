@@ -1,12 +1,23 @@
-// src/mesh.ts - Sistema definitivo de Mesh que reemplaza SceneObject
+
+// src/mesh.ts - Fixed Mesh system with proper bind group layout handling
 
 import { mat4 } from 'gl-matrix';
 import { Geometry } from './geometry-system';
 import { Material } from './material';
-import {IcosahedronGeometry} from './geometry-system'
+import { IcosahedronGeometry } from './geometry-system';
+
+/**
+ * Configuration for creating a Mesh
+ */
+export interface MeshConfig {
+  device: GPUDevice;
+  geometry: Geometry;
+  material: Material;
+  modelBGL: GPUBindGroupLayout;  // Model bind group layout
+}
+
 /**
  * Clase Mesh que combina geometría, material y transformación.
- * Esta es la versión final que reemplaza tanto SceneObject como TestMesh.
  */
 export class Mesh {
   private vertexBuffer: GPUBuffer;
@@ -14,27 +25,31 @@ export class Mesh {
   private modelMatrix = mat4.create();
   private modelUniformBuffer: GPUBuffer;
   private modelBindGroup: GPUBindGroup;
+  
+  private geometry: Geometry;
+  private material: Material;
+  private device: GPUDevice;
 
-  constructor(
-    private device: GPUDevice,
-    private geometry: Geometry,
-    private material: Material
-  ) {
+  constructor(config: MeshConfig) {
+    this.device = config.device;
+    this.geometry = config.geometry;
+    this.material = config.material;
+
     // Crear buffers usando la geometría
-    const { vertexBuffer, indexBuffer } = geometry.createBuffers(device);
+    const { vertexBuffer, indexBuffer } = this.geometry.createBuffers(this.device);
     this.vertexBuffer = vertexBuffer;
     this.indexBuffer = indexBuffer;
 
     // Buffer uniforme para matriz de modelo (16 floats * 4 bytes)
     const mat4Size = 4 * 4 * 4;
-    this.modelUniformBuffer = device.createBuffer({
+    this.modelUniformBuffer = this.device.createBuffer({
       size: mat4Size,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Bind group para matriz de modelo (grupo 1, binding 0)
-    this.modelBindGroup = device.createBindGroup({
-      layout: material.getPipeline().getBindGroupLayout(1),
+    // Bind group para matriz de modelo usando el layout proporcionado
+    this.modelBindGroup = this.device.createBindGroup({
+      layout: config.modelBGL,
       entries: [{
         binding: 0,
         resource: { buffer: this.modelUniformBuffer }
@@ -42,8 +57,8 @@ export class Mesh {
     });
     
     // Verificar que la geometría sea compatible con el material
-    const requiredLayout = material.getRequiredVertexLayout();
-    const geometryLayout = geometry.vertexLayout;
+    const requiredLayout = this.material.getRequiredVertexLayout();
+    const geometryLayout = this.geometry.vertexLayout;
     
     if (requiredLayout.stride !== geometryLayout.stride) {
       console.warn('⚠️ Geometry vertex layout may not match material requirements');
@@ -83,10 +98,7 @@ export class Mesh {
     );
   }
 
-  /**
-   * Método de compatibilidad con la API anterior
-   * @deprecated Use updateTransform en su lugar
-   */
+  
   updateModelTransform(deltaTime: number): void {
     this.updateTransform(deltaTime);
   }
@@ -98,11 +110,11 @@ export class Mesh {
     // El material configura el pipeline
     pass.setPipeline(this.material.getPipeline());
     
-    // Configurar bind groups propios del material (ej: texturas)
-    this.material.bind(pass);
-    
     // Configurar bind group del modelo
     pass.setBindGroup(1, this.modelBindGroup);
+    
+    // Configurar bind groups propios del material (ej: texturas)
+    this.material.bind(pass);
     
     // Configurar geometría
     pass.setVertexBuffer(0, this.vertexBuffer);
@@ -147,11 +159,16 @@ export class MeshFactory {
   static createTexturedIcosahedron(
     device: GPUDevice, 
     material: Material,
+    modelBGL: GPUBindGroupLayout,
     subdivisions: number = 3
   ): Mesh {
-    // Importación dinámica para evitar dependencias circulares
     const geometry = new IcosahedronGeometry(1.0, subdivisions, true);
-    return new Mesh(device, geometry, material);
+    return new Mesh({
+      device,
+      geometry,
+      material,
+      modelBGL
+    });
   }
 
   /**
@@ -160,10 +177,16 @@ export class MeshFactory {
   static createColoredIcosahedron(
     device: GPUDevice, 
     material: Material,
+    modelBGL: GPUBindGroupLayout,
     subdivisions: number = 2
   ): Mesh {
     const geometry = new IcosahedronGeometry(1.0, subdivisions, false);
-    return new Mesh(device, geometry, material);
+    return new Mesh({
+      device,
+      geometry,
+      material,
+      modelBGL
+    });
   }
 
   /**
@@ -172,8 +195,14 @@ export class MeshFactory {
   static createFromComponents(
     device: GPUDevice,
     geometry: Geometry,
-    material: Material
+    material: Material,
+    modelBGL: GPUBindGroupLayout
   ): Mesh {
-    return new Mesh(device, geometry, material);
+    return new Mesh({
+      device,
+      geometry,
+      material,
+      modelBGL
+    });
   }
 }

@@ -1,22 +1,21 @@
-// src/engine.ts - Engine actualizado con el nuevo sistema de Mesh
+// src/engine.ts - Engine with proper Material system
 
 import { initWebGPU } from './initGPU';
-import { createPipelinesWithExplicitLayout, BGLs } from './pipelines';
+import { createBindGroupLayouts, BGLs } from './createBindGroupLayouts';
 import { loadTexture } from './utils/loadTexture';
 import { Camera } from './camera';
-import { createCurrentLight, createSunLight, SimpleLight } from './light';
-import { Mesh, MeshFactory } from './mesh'; // ✅ NUEVO: Importar sistema definitivo
+import {  createSunLight, SimpleLight } from './light';
+import { Mesh, MeshFactory } from './mesh';
+import { MaterialConfig, SimpleMaterial, TexturedMaterial } from './material';
 
 export class Engine {
   private device!: GPUDevice;
   private context!: GPUCanvasContext;
   private format!: GPUTextureFormat;
 
-  // Separate pipeline layouts and pipelines
-  private simplePipelineLayout!: GPUPipelineLayout;
-  private texturedPipelineLayout!: GPUPipelineLayout;
-  private simplePipeline!: GPURenderPipeline;
-  private texturedPipeline!: GPURenderPipeline;
+  // Materials instead of pipelines
+  private simpleMaterial!: SimpleMaterial;
+  private texturedMaterial!: TexturedMaterial;
 
   // Bind group layouts
   private layouts!: BGLs;
@@ -24,11 +23,10 @@ export class Engine {
   // Shared bind-groups
   private camera!: Camera;
   private light!: SimpleLight;
-  private texBG!: GPUBindGroup;
 
-  // Scene objects usando el nuevo sistema
-  private sceneSimple!: Mesh;    // ✅ CAMBIADO: Mesh en lugar de Icosahedron
-  private sceneTextured!: Mesh;  // ✅ CAMBIADO: Mesh en lugar de Icosahedron
+  // Scene objects using the new system
+  private sceneSimple!: Mesh;
+  private sceneTextured!: Mesh;
 
   // Depth buffer
   private depthTexture!: GPUTexture;
@@ -38,7 +36,7 @@ export class Engine {
 
   constructor(private canvas: HTMLCanvasElement) {}
 
-  /** Inicializa WebGPU, pipelines, bind-groups y escena */
+  /** Inicializa WebGPU, materials, bind-groups y escena */
   public async init(): Promise<void> {
     // 1) Inicialización básica
     const { device, format, context } = await initWebGPU(this.canvas);
@@ -47,32 +45,31 @@ export class Engine {
     this.context = context;
     this.configureDepthTexture();
 
-    // 2) Crear pipelines con layouts separados
-    const { 
-      layouts, 
-      simplePipeline, 
-      texturedPipeline, 
-      simplePipelineLayout,
-      texturedPipelineLayout 
-    } = await createPipelinesWithExplicitLayout(device, format);
-    
+    // 2) Crear bind group layouts
+    const layouts = createBindGroupLayouts(device);
     this.layouts = layouts;
-    this.simplePipeline = simplePipeline;
-    this.texturedPipeline = texturedPipeline;
-    this.simplePipelineLayout = simplePipelineLayout;
-    this.texturedPipelineLayout = texturedPipelineLayout;
 
-    // 3) Cargar textura y crear bind-group 
+    // 3) Crear configuración base para materiales
+    const materialConfig: MaterialConfig = {
+      device,
+      format,
+      cameraBGL: layouts.cameraBGL,
+      modelBGL: layouts.modelBGL,
+      lightBGL: layouts.lightBGL,
+    };
+
+    // 4) Crear materiales
+    this.simpleMaterial = new SimpleMaterial(materialConfig);
+    
+    // Para el material con textura, incluir texBGL
+    const texturedMaterialConfig = { ...materialConfig, texBGL: layouts.texBGL };
+    this.texturedMaterial = new TexturedMaterial(texturedMaterialConfig);
+    
+    // 5) Cargar textura y configurarla en el material
     const { view, sampler } = await loadTexture(device, 'textures/earth.jpg');
-    this.texBG = device.createBindGroup({
-      layout: layouts.texBGL,
-      entries: [
-        { binding: 0, resource: view    },
-        { binding: 1, resource: sampler },
-      ],
-    });
+    this.texturedMaterial.setTexture(view, sampler);
 
-    // 4) Cámara
+    // 6) Cámara
     const aspect = this.canvas.width / this.canvas.height;
     this.camera = new Camera(
       device,
@@ -86,23 +83,25 @@ export class Engine {
       [0, 1, 0]           // up vector
     );
 
-    // 5) Configurar luz
+    // 7) Configurar luz
     this.light = createSunLight(device, layouts.lightBGL);
 
-    // 6) ✅ NUEVO: Instanciar objetos usando MeshFactory
+    // 8) Instanciar objetos usando MeshFactory con MATERIALES
     this.sceneSimple = MeshFactory.createColoredIcosahedron(
       device, 
-      this.simplePipeline, 
+      this.simpleMaterial,  // Material, no pipeline
+      layouts.modelBGL,     // Model bind group layout
       3
     );
     
     this.sceneTextured = MeshFactory.createTexturedIcosahedron(
       device, 
-      this.texturedPipeline, 
+      this.texturedMaterial,  // Material, no pipeline
+      layouts.modelBGL,       // Model bind group layout
       3
     );
 
-    // 7) Manejar resize
+    // 9) Manejar resize
     window.addEventListener('resize', () => this.onResize());
   }
 
@@ -142,17 +141,11 @@ export class Engine {
       },
     });
 
-    // Configurar pipeline y bind groups compartidos
-    pass.setPipeline(this.useTexture ? this.texturedPipeline : this.simplePipeline);
+    // Configurar bind groups compartidos
     pass.setBindGroup(0, this.camera.getBindGroup());
     pass.setBindGroup(2, this.light.getBindGroup());
     
-    // Bind group de textura solo si es necesario
-    if (this.useTexture) {
-      pass.setBindGroup(3, this.texBG);
-    }
-
-    // Dibujar objeto activo
+    // Dibujar objeto activo - el mesh maneja su pipeline y bind groups
     activeScene.draw(pass);
 
     pass.end();
@@ -203,7 +196,7 @@ export class Engine {
     this.light.setIntensity(intensity);
   }
 
-  // ✅ NUEVO: Método para cambiar subdivisiones dinámicamente
+  // Método para cambiar subdivisiones dinámicamente
   public setSubdivisions(subdivisions: number): void {
     // Destruir meshes anteriores
     this.sceneSimple.destroy();
@@ -212,13 +205,15 @@ export class Engine {
     // Crear nuevos meshes con las subdivisiones especificadas
     this.sceneSimple = MeshFactory.createColoredIcosahedron(
       this.device, 
-      this.simplePipeline, 
+      this.simpleMaterial,  // Material, no pipeline
+      this.layouts.modelBGL, // Model bind group layout
       subdivisions
     );
     
     this.sceneTextured = MeshFactory.createTexturedIcosahedron(
       this.device, 
-      this.texturedPipeline, 
+      this.texturedMaterial,  // Material, no pipeline
+      this.layouts.modelBGL,  // Model bind group layout
       subdivisions
     );
   }
@@ -228,5 +223,9 @@ export class Engine {
     this.sceneSimple?.destroy();
     this.sceneTextured?.destroy();
     this.depthTexture?.destroy();
+    this.simpleMaterial?.destroy();
+    this.texturedMaterial?.destroy();
+    this.camera?.destroy();
+    this.light?.destroy();
   }
 }
