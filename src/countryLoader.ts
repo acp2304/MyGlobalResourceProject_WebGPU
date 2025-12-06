@@ -68,7 +68,8 @@ function extractArcByIndex(
 
 // Convierte lon/lat a coordenada 3D en la esfera (radio levemente mayor para evitar z-fighting)
 function lonLatToXYZ(lon: number, lat: number, radius = 1.01): [number, number, number] {
-  const lonRad = (lon * Math.PI) / 180;
+  // Invertimos la longitud para que coincida con la orientación del mapa/textura
+  const lonRad = (-lon * Math.PI) / 180;
   const latRad = (lat * Math.PI) / 180;
   const x = radius * Math.cos(latRad) * Math.cos(lonRad);
   const y = radius * Math.sin(latRad);
@@ -116,7 +117,8 @@ function centroidLonLat(points: [number, number][]): { lon: number; lat: number 
   let sumLon = 0;
   let sumLat = 0;
   for (const [lon, lat] of points) {
-    sumLon += lon;
+    // Invertimos lon para mantener coherencia con la proyección usada en lonLatToXYZ
+    sumLon += -lon;
     sumLat += lat;
   }
   return { lon: sumLon / points.length, lat: sumLat / points.length };
