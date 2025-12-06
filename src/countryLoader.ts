@@ -20,11 +20,13 @@ type Topology = {
 };
 
 export type CountryOutline = {
+  id: number;
   name: string;
   start: number;
   count: number;
   properties: Record<string, any>;
   centroid: { lat: number; lon: number };
+  rings: [number, number][][];
 };
 
 export type CountryOutlinesData = {
@@ -163,12 +165,15 @@ export async function loadCountryOutlines(): Promise<CountryOutlinesData> {
     }
 
     const name = geom.properties?.name ?? 'Unknown';
+    const id = outlines.length + 1; // Reservamos 0 para el ocケano en el mask
     outlines.push({
+      id,
       name,
       start,
       count: segmentCount,
       properties: geom.properties ?? {},
       centroid,
+      rings,
     });
   }
 

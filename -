@@ -1,0 +1,200 @@
+    pass.setBindGroup(0, this.cameraBindGroup);
+    pass.setBindGroup(1, this.modelBindGroup);
+    pass.setBindGroup(2, this.lightingBindGroup);
+    pass.setBindGroup(3, this.textureBindGroup);
+    pass.setBindGroup(4, this.maskBindGroup);
+
+    pass.setVertexBuffer(0, this.vertexBuffer);
+    pass.setIndexBuffer(this.indexBuffer, 'uint16');
+    pass.drawIndexed(this.indexCount);
+
+    // Dibujar contornos base
+    if (this.outlineVertexCount > 0) {
+      pass.setPipeline(this.outlinePipeline);
+      pass.setBindGroup(0, this.cameraBindGroup);
+      // Color base tenue
+      this.device.queue.writeBuffer(this.outlineColorBuffer, 0, new Float32Array([0.25, 0.6, 0.9, 0.35]));
+      pass.setBindGroup(1, this.outlineBindGroup);
+      pass.setVertexBuffer(0, this.outlineVertexBuffer);
+      pass.draw(this.outlineVertexCount);
+
+      // Contorno hover (amarillo suave)
+      if (this.hoveredCountryIndex !== null) {
+        const hovered = this.countryOutlines[this.hoveredCountryIndex];
+        this.device.queue.writeBuffer(this.outlineColorBuffer, 0, new Float32Array([1.0, 0.85, 0.3, 0.75]));
+        pass.setBindGroup(1, this.outlineBindGroup);
+        pass.draw(hovered.count, 1, hovered.start);
+      }
+
+      // Contorno seleccionado (prioridad sobre hover)
+      if (this.selectedCountryIndex !== null) {
+        const selected = this.countryOutlines[this.selectedCountryIndex];
+        this.device.queue.writeBuffer(this.outlineColorBuffer, 0, new Float32Array([1.0, 0.95, 0.4, 1.0]));
+        pass.setBindGroup(1, this.outlineBindGroup);
+        pass.draw(selected.count, 1, selected.start);
+      }
+    }
+
+    pass.end();
+    this.device.queue.submit([encoder.finish()]);
+
+    requestAnimationFrame((t) => this.frame(t));
+  }
+
+  private createCamera(device: GPUDevice): void {
+    this.cameraLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      ],
+    });
+
+    const aspect = this.canvas.width / this.canvas.height;
+    this.camera = new Camera(
+      device,
+      this.cameraLayout,
+      aspect,
+      Math.PI / 4,
+      0.1,
+      100,
+      [0, 1, 3],
+      [0, 0, 0],
+      [0, 1, 0]
+    );
+
+    this.cameraBindGroup = this.camera.getBindGroup();
+  }
+
+  private createModelGroup(device: GPUDevice): void {
+    this.modelBuffer = device.createBuffer({
+      size: 4 * 4 * 4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.modelLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
+      ],
+    });
+
+    this.modelBindGroup = device.createBindGroup({
+      layout: this.modelLayout,
+      entries: [{ binding: 0, resource: { buffer: this.modelBuffer } }],
+    });
+  }
+
+  private createLightingGroup(device: GPUDevice): void {
+    this.lightingBuffer = device.createBuffer({
+      size: 4 * 4 * 3,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.lightingLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      ],
+    });
+
+    this.lightingBindGroup = device.createBindGroup({
+      layout: this.lightingLayout,
+      entries: [{ binding: 0, resource: { buffer: this.lightingBuffer } }],
+    });
+  }
+
+  // Carga contornos de países y prepara buffers + bind group para dibujarlos
+  private async createOutlineResources(device: GPUDevice): Promise<void> {
+    this.outlineLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      ],
+    });
+
+    this.outlineColorBuffer = device.createBuffer({
+      size: 4 * 4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.outlineBindGroup = device.createBindGroup({
+      layout: this.outlineLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.outlineColorBuffer } },
+      ],
+    });
+
+    const { vertices, outlines } = await loadCountryOutlines();
+    this.countryOutlines = outlines;
+    this.countryIdToIndex = new Array(outlines.length + 1).fill(-1);
+    outlines.forEach((o, i) => {
+      this.countryIdToIndex[o.id] = i;
+    });
+    this.outlineVertexCount = vertices.length / 3;
+
+    this.outlineVertexBuffer = device.createBuffer({
+      size: vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
+    });
+    new Float32Array(this.outlineVertexBuffer.getMappedRange()).set(vertices);
+    this.outlineVertexBuffer.unmap();
+  }
+
+  private async createCountryMaskResources(device: GPUDevice): Promise<void> {
+    this.maskLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      ],
+    });
+
+    const maskData = this.buildCountryMaskData();
+    this.countryMaskData = maskData;
+
+    this.countryMaskTexture = device.createTexture({
+      size: { width: this.maskWidth, height: this.maskHeight },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+
+    device.queue.writeTexture(
+      { texture: this.countryMaskTexture },
+      maskData,
+      { bytesPerRow: this.maskWidth * 4, rowsPerImage: this.maskHeight },
+      { width: this.maskWidth, height: this.maskHeight },
+    );
+
+    this.countryMaskView = this.countryMaskTexture.createView();
+    this.countryMaskSampler = device.createSampler({
+      magFilter: 'nearest',
+      minFilter: 'nearest',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+    });
+
+    this.countrySelectionBuffer = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.updateCountrySelectionUniform();
+
+    this.maskBindGroup = device.createBindGroup({
+      layout: this.maskLayout,
+      entries: [
+        { binding: 0, resource: this.countryMaskView },
+        { binding: 1, resource: this.countryMaskSampler },
+        { binding: 2, resource: { buffer: this.countrySelectionBuffer } },
+      ],
+    });
+  }
+
+  private createTextureGroup(
+    device: GPUDevice,
+    view: GPUTextureView,
+    sampler: GPUSampler,
+  ): GPUBindGroup {
+    this.textureLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      ],
+    });
