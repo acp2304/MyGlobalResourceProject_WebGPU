@@ -45,6 +45,7 @@ export class Engine {
   private outlineVertexCount = 0;
   private countryOutlines: CountryOutline[] = [];
   private selectedCountryIndex: number | null = null;
+  private readonly longitudeOffsetDeg = 90; // corrige desplazamiento del mapa/textura
 
   private vertexBuffer!: GPUBuffer;
   private indexBuffer!: GPUBuffer;
@@ -428,8 +429,8 @@ export class Engine {
 
   private latLonToDirection(lat: number, lon: number): vec3 {
     const latRad = (lat * Math.PI) / 180;
-    // Invertimos lon para que las coordenadas coincidan con la textura/mapa
-    const lonRad = (-lon * Math.PI) / 180;
+    // Invertimos lon y aplicamos offset para alinear con la textura/mapa
+    const lonRad = ((-lon + this.longitudeOffsetDeg) * Math.PI) / 180;
     const x = Math.cos(latRad) * Math.cos(lonRad);
     const y = Math.sin(latRad);
     const z = Math.cos(latRad) * Math.sin(lonRad);
