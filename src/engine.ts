@@ -8,6 +8,14 @@ import vertexShader from './common.vert.wgsl?raw';
 import fragmentShader from './textured.frag.wgsl?raw';
 import outlineVert from './outline.vert.wgsl?raw';
 import outlineFrag from './outline.frag.wgsl?raw';
+import { directionToUV, latLonToDirection as mapLatLonToDirection, lonLatToUV, LONGITUDE_OFFSET_DEG } from './engine/geoMapping';
+import {
+  buildCountryIdLookup,
+  createCountryMaskResources,
+  sampleMaskId,
+  updateSelectionBuffer,
+  type CountryMaskResources,
+} from './engine/countryMask';
 
 interface HighlightConfig {
   direction: vec3;
@@ -37,10 +45,7 @@ export class Engine {
   private outlineBindGroup!: GPUBindGroup;
   private outlineColorBuffer!: GPUBuffer;
   private outlinePipeline!: GPURenderPipeline;
-  private countryMaskTexture!: GPUTexture;
-  private countryMaskView!: GPUTextureView;
-  private countryMaskSampler!: GPUSampler;
-  private countrySelectionBuffer!: GPUBuffer;
+  private maskResources: CountryMaskResources | null = null;
 
   private modelMatrix = mat4.create();
   private modelBuffer!: GPUBuffer;
@@ -49,12 +54,10 @@ export class Engine {
   private outlineVertexCount = 0;
   private countryOutlines: CountryOutline[] = [];
   private countryIdToIndex: number[] = [];
-  private countryMaskData: Uint8ClampedArray | null = null;
-  private readonly maskWidth = 4096;
-  private readonly maskHeight = 2048;
+  private readonly maskSize = { width: 4096, height: 2048 };
   private selectedCountryIndex: number | null = null;
   private hoveredCountryIndex: number | null = null;
-  private readonly longitudeOffsetDeg = 90; // corrige desplazamiento del mapa/textura
+  private readonly longitudeOffsetDeg = LONGITUDE_OFFSET_DEG; // corrige desplazamiento del mapa/textura
 
   private vertexBuffer!: GPUBuffer;
   private indexBuffer!: GPUBuffer;
@@ -157,7 +160,7 @@ export class Engine {
     const dir = this.screenToDirection(clientX, clientY);
     if (!dir) return null;
     const uv = this.directionToUV(dir);
-    const maskId = this.sampleMaskId(uv.u, uv.v);
+    const maskId = sampleMaskId(uv.u, uv.v, this.maskResources?.data ?? null, this.maskSize);
     if (maskId === null) return null;
     const idx = this.countryIdToIndex[maskId];
     if (idx === undefined || idx < 0) return null;
@@ -332,10 +335,7 @@ export class Engine {
 
     const { vertices, outlines } = await loadCountryOutlines();
     this.countryOutlines = outlines;
-    this.countryIdToIndex = new Array(outlines.length + 1).fill(-1);
-    outlines.forEach((o, i) => {
-      this.countryIdToIndex[o.id] = i;
-    });
+    this.countryIdToIndex = buildCountryIdLookup(outlines);
     this.outlineVertexCount = vertices.length / 3;
 
     this.outlineVertexBuffer = device.createBuffer({
@@ -348,34 +348,12 @@ export class Engine {
   }
 
   private async createCountryMaskResources(device: GPUDevice): Promise<void> {
-    const maskData = this.buildCountryMaskData();
-    this.countryMaskData = maskData;
-
-    this.countryMaskTexture = device.createTexture({
-      size: { width: this.maskWidth, height: this.maskHeight },
-      format: 'rgba8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-
-    device.queue.writeTexture(
-      { texture: this.countryMaskTexture },
-      maskData,
-      { bytesPerRow: this.maskWidth * 4, rowsPerImage: this.maskHeight },
-      { width: this.maskWidth, height: this.maskHeight },
+    this.maskResources = createCountryMaskResources(
+      device,
+      this.countryOutlines,
+      this.maskSize,
+      (lat, lon) => lonLatToUV(lat, lon, this.longitudeOffsetDeg),
     );
-
-    this.countryMaskView = this.countryMaskTexture.createView();
-    this.countryMaskSampler = device.createSampler({
-      magFilter: 'nearest',
-      minFilter: 'nearest',
-      addressModeU: 'clamp-to-edge',
-      addressModeV: 'clamp-to-edge',
-    });
-
-    this.countrySelectionBuffer = device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
     this.updateCountrySelectionUniform();
   }
 
@@ -384,6 +362,9 @@ export class Engine {
     view: GPUTextureView,
     sampler: GPUSampler,
   ): GPUBindGroup {
+    if (!this.maskResources) {
+      throw new Error('Los recursos de mßscara de paÚses no estßn listos');
+    }
     this.textureLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
@@ -399,9 +380,9 @@ export class Engine {
       entries: [
         { binding: 0, resource: view },
         { binding: 1, resource: sampler },
-        { binding: 2, resource: this.countryMaskView },
-        { binding: 3, resource: this.countryMaskSampler },
-        { binding: 4, resource: { buffer: this.countrySelectionBuffer } },
+        { binding: 2, resource: this.maskResources.view },
+        { binding: 3, resource: this.maskResources.sampler },
+        { binding: 4, resource: { buffer: this.maskResources.selectionBuffer } },
       ],
     });
 
@@ -505,88 +486,18 @@ export class Engine {
 
     this.device.queue.writeBuffer(this.lightingBuffer, 0, data);
   }
-
   private latLonToDirection(lat: number, lon: number): vec3 {
-    const latRad = (lat * Math.PI) / 180;
-    // Invertimos lon y aplicamos offset para alinear con la textura/mapa
-    const lonRad = ((-lon + this.longitudeOffsetDeg) * Math.PI) / 180;
-    const x = Math.cos(latRad) * Math.cos(lonRad);
-    const y = Math.sin(latRad);
-    const z = Math.cos(latRad) * Math.sin(lonRad);
-    return vec3.fromValues(x, y, z);
+    return mapLatLonToDirection(lat, lon, this.longitudeOffsetDeg);
   }
 
   private directionToUV(dir: vec3): { u: number; v: number } {
-    const n = vec3.normalize(vec3.create(), dir);
-    let u = 1 - (Math.atan2(-n[0], n[2]) / (2 * Math.PI) + 0.5);
-    let v = 1 - (Math.asin(Math.max(-1, Math.min(1, n[1]))) / Math.PI + 0.5);
-    u = ((u % 1) + 1) % 1;
-    v = Math.min(1, Math.max(0, v));
-    return { u, v };
-  }
-
-  private lonLatToUV(lat: number, lon: number): { u: number; v: number } {
-    return this.directionToUV(this.latLonToDirection(lat, lon));
-  }
-
-  private buildCountryMaskData(): Uint8ClampedArray {
-    const canvas = document.createElement('canvas');
-    canvas.width = this.maskWidth;
-    canvas.height = this.maskHeight;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) throw new Error('No se pudo crear el contexto 2D para el mapa de paヴses');
-    ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, this.maskWidth, this.maskHeight);
-
-    const w = this.maskWidth - 1;
-    const h = this.maskHeight - 1;
-
-    for (const country of this.countryOutlines) {
-      const { r, g, b } = this.encodeMaskColor(country.id);
-      ctx.fillStyle = `rgb(${r},${g},${b})`;
-      ctx.beginPath();
-      for (const ring of country.rings) {
-        if (!ring.length) continue;
-        const uvRing = ring.map(([lon, lat]) => this.lonLatToUV(lat, lon));
-        ctx.moveTo(uvRing[0].u * w, uvRing[0].v * h);
-        for (let i = 1; i < uvRing.length; i++) {
-          ctx.lineTo(uvRing[i].u * w, uvRing[i].v * h);
-        }
-        ctx.closePath();
-      }
-      ctx.fill('evenodd');
-    }
-
-    return ctx.getImageData(0, 0, this.maskWidth, this.maskHeight).data;
-  }
-
-  private sampleMaskId(u: number, v: number): number | null {
-    if (!this.countryMaskData) return null;
-    const clampedU = Math.min(1, Math.max(0, u));
-    const clampedV = Math.min(1, Math.max(0, v));
-    const x = Math.round(clampedU * (this.maskWidth - 1));
-    const y = Math.round(clampedV * (this.maskHeight - 1));
-    const offset = (y * this.maskWidth + x) * 4;
-    const data = this.countryMaskData;
-    const id = data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16);
-    return id === 0 ? null : id;
-  }
-
-  private encodeMaskColor(id: number): { r: number; g: number; b: number } {
-    const safeId = Math.max(0, Math.floor(id));
-    return {
-      r: safeId & 0xff,
-      g: (safeId >> 8) & 0xff,
-      b: (safeId >> 16) & 0xff,
-    };
+    return directionToUV(dir);
   }
 
   private updateCountrySelectionUniform(): void {
-    if (!this.device || !this.countrySelectionBuffer) return;
     const hoveredId = this.hoveredCountryIndex !== null ? this.countryOutlines[this.hoveredCountryIndex].id : 0;
     const selectedId = this.selectedCountryIndex !== null ? this.countryOutlines[this.selectedCountryIndex].id : 0;
-    const data = new Uint32Array([hoveredId, selectedId, 0, 0]);
-    this.device.queue.writeBuffer(this.countrySelectionBuffer, 0, data);
+    updateSelectionBuffer(this.device, this.maskResources?.selectionBuffer, hoveredId, selectedId);
   }
 
   // Ray casting del cursor a la esfera y devuelve dirección normalizada
