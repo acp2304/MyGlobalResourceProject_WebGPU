@@ -15,8 +15,12 @@ var<uniform> cameraPos: vec4<f32>;
 var<uniform> model : mat4x4<f32>;
 
 // Grupo 2: Luz direccional + intensidad (x,y,z = dirección, w = intensidad)
+struct LightData {
+  lightDirIntensity: vec4<f32>,
+};
+
 @group(2) @binding(0)
-var<uniform> light : vec4<f32>;
+var<uniform> light : LightData;
 
 // ❌ REMOVIDO: @group(3) ya no se usa en el shader simple
 
@@ -50,12 +54,12 @@ fn fs_main(@location(0) vColor: vec3<f32>,@location(1) vNormal:vec3<f32>,@locati
 
   // 1) Diffuse (Lambert)
   let N   = normalize(vNormal);
-  let L   = normalize(light.xyz);
+  let L   = normalize(light.lightDirIntensity.xyz);
   //El dot product entre dos vectores normalizados te da el coseno del ángulo entre ellos,
   //y ese coseno es el valor escalar de la proyección de uno sobre otro.
   //El dot product mide cuánto dos vectores colabora
   let diff = max(dot(N, L), 0.0);
-  let diffuse  = diff * vColor * light.w;
+  let diffuse  = diff * vColor * light.lightDirIntensity.w;
 
   // 2) Ambient
   let ambient  = ambientStrength * vColor;
@@ -73,7 +77,7 @@ fn fs_main(@location(0) vColor: vec3<f32>,@location(1) vNormal:vec3<f32>,@locati
   //Aqui lo mismo que con Lambert, miramos como de coincidentes son los rayos, La potencia es para reducir los numero des escalar que estara entre [0,1] ya que el vector R y V estan normalizados
   //Contra mas alto sea el power mas pequeños se haran los numeros de forma exponencial. Por lo que un spec muy alto llevara los numero casi a 0, solo respetando los completamente incidentes,
   //reflexion casi perfecta de materiales por ejemplo metalicos. Contra mas bajo sera mas difuso. 
-  let specular = pow(max(dot(R, V), 0.0), specPower) * light.w * 3.0;
+  let specular = pow(max(dot(R, V), 0.0), specPower) * light.lightDirIntensity.w * 3.0;
   //Aqui simplemente escalamos un vector 1.0,1.0,1.0 con luz blanca para ver la potencia
   let specColor = vec3<f32>(1.0) * specular;
 
