@@ -235,15 +235,7 @@ export class Engine {
       pass.setVertexBuffer(0, this.outlineVertexBuffer);
       pass.draw(this.outlineVertexCount);
 
-      // Contorno hover (amarillo suave)
-      if (this.hoveredCountryIndex !== null) {
-        const hovered = this.countryOutlines[this.hoveredCountryIndex];
-        this.device.queue.writeBuffer(this.outlineColorBuffer, 0, new Float32Array([1.0, 0.85, 0.3, 0.75]));
-        pass.setBindGroup(1, this.outlineBindGroup);
-        pass.draw(hovered.count, 1, hovered.start);
-      }
-
-      // Contorno seleccionado (prioridad sobre hover)
+      // Contorno seleccionado (amarillo) sobre el base azul
       if (this.selectedCountryIndex !== null) {
         const selected = this.countryOutlines[this.selectedCountryIndex];
         this.device.queue.writeBuffer(this.outlineColorBuffer, 0, new Float32Array([1.0, 0.95, 0.4, 1.0]));
