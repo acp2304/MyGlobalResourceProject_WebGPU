@@ -45,6 +45,8 @@ export class Engine {
   private outlineVertexCount = 0;
   private countryOutlines: CountryOutline[] = [];
   private selectedCountryIndex: number | null = null;
+  private hoveredCountryIndex: number | null = null;
+  private countryDirections: vec3[] = [];
   private readonly longitudeOffsetDeg = 90; // corrige desplazamiento del mapa/textura
 
   private vertexBuffer!: GPUBuffer;
@@ -127,6 +129,26 @@ export class Engine {
     return this.selectedCountryIndex !== null ? this.countryOutlines[this.selectedCountryIndex] : null;
   }
 
+  // Establece país hovered (para contorno/hover)
+  public setHoveredCountry(name: string | null): CountryOutline | null {
+    if (name === null) {
+      this.hoveredCountryIndex = null;
+      return null;
+    }
+    const idx = this.countryOutlines.findIndex((c) => c.name === name);
+    this.hoveredCountryIndex = idx >= 0 ? idx : null;
+    return this.hoveredCountryIndex !== null ? this.countryOutlines[this.hoveredCountryIndex] : null;
+  }
+
+  // Devuelve un país bajo el puntero (si encuentra alguno cercano)
+  public pickCountryAt(clientX: number, clientY: number): CountryOutline | null {
+    const dir = this.screenToDirection(clientX, clientY);
+    if (!dir) return null;
+    const best = this.findClosestCountry(dir, 8); // umbral angular en grados
+    if (best === null) return null;
+    return this.countryOutlines[best];
+  }
+
   public getCountries(): CountryOutline[] {
     return this.countryOutlines;
   }
@@ -198,10 +220,18 @@ export class Engine {
       pass.setVertexBuffer(0, this.outlineVertexBuffer);
       pass.draw(this.outlineVertexCount);
 
-      // Contorno resaltado
+      // Contorno hover (amarillo suave)
+      if (this.hoveredCountryIndex !== null) {
+        const hovered = this.countryOutlines[this.hoveredCountryIndex];
+        this.device.queue.writeBuffer(this.outlineColorBuffer, 0, new Float32Array([1.0, 0.85, 0.3, 0.75]));
+        pass.setBindGroup(1, this.outlineBindGroup);
+        pass.draw(hovered.count, 1, hovered.start);
+      }
+
+      // Contorno seleccionado (prioridad sobre hover)
       if (this.selectedCountryIndex !== null) {
         const selected = this.countryOutlines[this.selectedCountryIndex];
-        this.device.queue.writeBuffer(this.outlineColorBuffer, 0, new Float32Array([1.0, 0.8, 0.2, 0.8]));
+        this.device.queue.writeBuffer(this.outlineColorBuffer, 0, new Float32Array([1.0, 0.95, 0.4, 1.0]));
         pass.setBindGroup(1, this.outlineBindGroup);
         pass.draw(selected.count, 1, selected.start);
       }
@@ -296,6 +326,9 @@ export class Engine {
     const { vertices, outlines } = await loadCountryOutlines();
     this.countryOutlines = outlines;
     this.outlineVertexCount = vertices.length / 3;
+    this.countryDirections = outlines.map((o) =>
+      this.latLonToDirection(o.centroid.lat, o.centroid.lon)
+    );
 
     this.outlineVertexBuffer = device.createBuffer({
       size: vertices.byteLength,
@@ -435,6 +468,66 @@ export class Engine {
     const y = Math.sin(latRad);
     const z = Math.cos(latRad) * Math.sin(lonRad);
     return vec3.fromValues(x, y, z);
+  }
+
+  // Inverso de latLonToDirection: obtiene lat/lon "de datos" desde un vector mundo
+  private directionToLatLon(dir: vec3): { lat: number; lon: number } {
+    const n = vec3.normalize(vec3.create(), dir);
+    const lat = Math.asin(n[1]) * 180 / Math.PI;
+    const lonRad = Math.atan2(n[2], n[0]);
+    const lon = -((lonRad * 180 / Math.PI) - this.longitudeOffsetDeg);
+    return { lat, lon };
+  }
+
+  // Ray casting del cursor a la esfera y devuelve dirección normalizada
+  private screenToDirection(clientX: number, clientY: number): vec3 | null {
+    const rect = this.canvas.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -(((clientY - rect.top) / rect.height) * 2 - 1);
+
+    const vp = this.camera.getViewProjectionMatrix();
+    const invVP = mat4.create();
+    if (!mat4.invert(invVP, vp)) return null;
+
+    const ndcNear = vec4.fromValues(x, y, -1, 1);
+    const ndcFar = vec4.fromValues(x, y, 1, 1);
+
+    const nearWorld = vec4.transformMat4(vec4.create(), ndcNear, invVP);
+    const farWorld = vec4.transformMat4(vec4.create(), ndcFar, invVP);
+    for (const v of [nearWorld, farWorld]) {
+      v[0] /= v[3]; v[1] /= v[3]; v[2] /= v[3]; v[3] = 1;
+    }
+
+    const origin = this.camera.getPosition();
+    const dir = vec3.normalize(vec3.create(), vec3.sub(vec3.create(), [farWorld[0], farWorld[1], farWorld[2]], [origin[0], origin[1], origin[2]]));
+
+    // Intersección con esfera de radio 1 (centro 0)
+    const oDotD = vec3.dot(origin, dir);
+    const oDotO = vec3.dot(origin, origin);
+    const radius = 1.0;
+    const discriminant = oDotD * oDotD - (oDotO - radius * radius);
+    if (discriminant < 0) return null;
+    const t = -oDotD - Math.sqrt(discriminant);
+    if (t < 0) return null;
+    const hit = vec3.scaleAndAdd(vec3.create(), origin, dir, t);
+    return vec3.normalize(vec3.create(), hit);
+  }
+
+  // Busca el país más cercano a una dirección, limitado por un umbral angular en grados
+  private findClosestCountry(direction: vec3, maxAngleDeg: number): number | null {
+    if (!this.countryDirections.length) return null;
+    const maxAngleRad = (maxAngleDeg * Math.PI) / 180;
+    const minDot = Math.cos(maxAngleRad);
+    let bestIdx = -1;
+    let bestDot = minDot;
+    for (let i = 0; i < this.countryDirections.length; i++) {
+      const d = vec3.dot(direction, this.countryDirections[i]);
+      if (d > bestDot) {
+        bestDot = d;
+        bestIdx = i;
+      }
+    }
+    return bestIdx >= 0 ? bestIdx : null;
   }
 
   private configureDepthTexture(): void {

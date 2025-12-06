@@ -12,6 +12,8 @@ const lonInput = document.getElementById('lon-input') as HTMLInputElement;
 const manualBtn = document.getElementById('select-coordinates') as HTMLButtonElement;
 const currentLabel = document.getElementById('current-selection') as HTMLSpanElement;
 const infoPanel = document.getElementById('country-info') as HTMLDivElement;
+const baseInfoText = '<p>Selecciona o pasa el ratón por un país para ver sus datos del TopoJSON.</p>';
+infoPanel.innerHTML = baseInfoText;
 
 // Poblado dinámico de países desde el TopoJSON (vía engine)
 const countries = engine.getCountries();
@@ -35,7 +37,7 @@ selector.addEventListener('change', () => {
   if (!selected) {
     engine.clearHighlight();
     currentLabel.textContent = 'sin pais activo';
-    infoPanel.innerHTML = '<p>Selecciona un pais para ver su info.</p>';
+    infoPanel.innerHTML = baseInfoText;
     return;
   }
 
@@ -67,4 +69,26 @@ manualBtn.addEventListener('click', () => {
   handleRegionSelection(engine, selection, 'manual');
   currentLabel.textContent = selection.label;
   selector.value = '';
+});
+
+// Hover sobre el canvas: actualizar info + highlight suave
+canvas.addEventListener('pointermove', (event) => {
+  if (event.buttons !== 0) return; // si se está arrastrando para orbitar, no hacer hover
+  const hovered = engine.pickCountryAt(event.clientX, event.clientY);
+  if (!hovered) {
+    engine.setHoveredCountry(null);
+    infoPanel.innerHTML = baseInfoText;
+    return;
+  }
+  engine.setHoveredCountry(hovered.name);
+  engine.setHighlight(hovered.centroid.lat, hovered.centroid.lon, 7, 0.8);
+  infoPanel.innerHTML = `
+    <h3>${hovered.name}</h3>
+    <pre>${JSON.stringify(hovered.properties, null, 2)}</pre>
+  `;
+});
+
+canvas.addEventListener('pointerleave', () => {
+  engine.setHoveredCountry(null);
+  infoPanel.innerHTML = baseInfoText;
 });
