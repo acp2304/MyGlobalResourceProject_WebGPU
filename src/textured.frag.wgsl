@@ -23,14 +23,8 @@ struct LightData {
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let albedo = textureSample(myTexture, mySampler, in.vUV).rgb;
 
-  // Iluminación difusa + especular sencilla
-  let N = normalize(in.vNormal);
-  let L = normalize(-lightData.lightDirIntensity.xyz);
-  let V = normalize(cameraPos.xyz - in.vWorldPos);
-  let R = reflect(-L, N);
-  let ambient  = 0.25 * lightData.lightDirIntensity.www;
-  let diff     = max(dot(N, L), 0.0) * lightData.lightDirIntensity.www;
-  let spec     = pow(max(dot(R, V), 0.0), 64.0) * 0.1 * lightData.lightDirIntensity.www;
-  let color    = (ambient + diff + spec) * albedo;
+  // Luz uniforme en toda la esfera (sin variación por normales)
+  let intensity = lightData.lightDirIntensity.w;
+  let color = albedo * max(intensity, 0.0);
   return vec4<f32>(color, 1.0);
 }

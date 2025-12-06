@@ -47,7 +47,19 @@ export class Engine {
   };
 
   private readonly lightDir = vec3.fromValues(-0.25, -0.6, -0.3);
-  private readonly lightIntensity = 2.0;
+  private readonly lightIntensity = 0.8; // Luz más suave sobre toda la esfera
+
+  // Estado de interacción con el ratón (orbita y zoom)
+  private isDragging = false;
+  private lastX = 0;
+  private lastY = 0;
+  private readonly orbitSpeed = 0.0025; // Menor sensibilidad de rotación
+  private readonly zoomStep = 0.25; // Zoom más suave por rueda
+  private orbitVelAzimuth = 0;
+  private orbitVelElevation = 0;
+  private readonly orbitDamping = 0.9; // Desaceleración al soltar el botón
+  private zoomVelocity = 0;
+  private readonly zoomDamping = 0.82; // Pequeña desaceleración de zoom
 
   constructor(private canvas: HTMLCanvasElement) {}
 
@@ -69,6 +81,7 @@ export class Engine {
     this.createGeometry(device);
 
     window.addEventListener('resize', () => this.onResize());
+    this.registerControls(); // Habilita orbitar con ratón y zoom con rueda
   }
 
   public start(): void {
@@ -89,11 +102,30 @@ export class Engine {
     this.highlight.intensity = 0;
   }
 
-  private frame(time: number): void {
-    const rotation = time / 3000;
+  private frame(_time: number): void {
+    // Sin rotación automática: la cámara se orbita manualmente con el ratón
     mat4.identity(this.modelMatrix);
-    mat4.rotateY(this.modelMatrix, this.modelMatrix, rotation);
     this.device.queue.writeBuffer(this.modelBuffer, 0, this.modelMatrix as Float32Array);
+
+    // Inercia suave cuando se suelta el ratón
+    if (!this.isDragging) {
+      if (Math.abs(this.orbitVelAzimuth) > 1e-4 || Math.abs(this.orbitVelElevation) > 1e-4) {
+        this.camera.orbit(this.orbitVelAzimuth, this.orbitVelElevation);
+        this.orbitVelAzimuth *= this.orbitDamping;
+        this.orbitVelElevation *= this.orbitDamping;
+      } else {
+        this.orbitVelAzimuth = 0;
+        this.orbitVelElevation = 0;
+      }
+    }
+
+    // Inercia corta para el zoom (da suavidad al scroll)
+    if (Math.abs(this.zoomVelocity) > 1e-4) {
+      this.camera.zoom(this.zoomVelocity);
+      this.zoomVelocity *= this.zoomDamping;
+    } else {
+      this.zoomVelocity = 0;
+    }
 
     this.updateLightingBuffer();
     this.camera.update();
@@ -309,5 +341,48 @@ export class Engine {
     const newAspect = this.canvas.width / this.canvas.height;
     this.camera.update({ aspect: newAspect });
     this.configureDepthTexture();
+  }
+
+  // Registra controles de ratón para orbitar (X/Y) y hacer zoom (rueda)
+  private registerControls(): void {
+    this.canvas.addEventListener('pointerdown', (event) => {
+      this.isDragging = true;
+      this.lastX = event.clientX;
+      this.lastY = event.clientY;
+      this.orbitVelAzimuth = 0; // reset inercia al empezar un drag
+      this.orbitVelElevation = 0;
+      this.canvas.setPointerCapture(event.pointerId);
+    });
+
+    this.canvas.addEventListener('pointerup', (event) => {
+      this.isDragging = false;
+      this.canvas.releasePointerCapture(event.pointerId);
+    });
+
+    this.canvas.addEventListener('pointerleave', () => {
+      this.isDragging = false;
+    });
+
+    this.canvas.addEventListener('pointermove', (event) => {
+      if (!this.isDragging) return;
+      const dx = event.clientX - this.lastX;
+      const dy = event.clientY - this.lastY;
+      this.lastX = event.clientX;
+      this.lastY = event.clientY;
+
+      // Invertimos direcciones para que el movimiento se sienta natural (dx derecha -> yaw derecha)
+      const az = -dx * this.orbitSpeed;
+      const el = dy * this.orbitSpeed;
+      this.camera.orbit(az, el);
+      this.orbitVelAzimuth = az;      // guarda velocidad para la inercia
+      this.orbitVelElevation = el;
+    });
+
+    this.canvas.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      const direction = Math.sign(event.deltaY);
+      // Acumula velocidad para un zoom suave con ligera inercia
+      this.zoomVelocity += direction * this.zoomStep;
+    }, { passive: false });
   }
 }

@@ -155,6 +155,19 @@ export class Camera {
     this.update();
   }
 
+  // Ajusta la distancia al centro sin rotaciones sobre Z (zoom con rueda)
+  zoom(deltaRadius: number, minRadius: number = 1.5, maxRadius: number = 20): void {
+    const offset = vec3.create();
+    vec3.subtract(offset, this.eye, this.center);
+    const currentRadius = vec3.length(offset);
+    const nextRadius = Math.min(maxRadius, Math.max(minRadius, currentRadius + deltaRadius));
+
+    vec3.normalize(offset, offset);
+    vec3.scale(offset, offset, nextRadius);
+    vec3.add(this.eye, this.center, offset);
+    this.update();
+  }
+
   /**
    * Libera recursos GPU
    */
