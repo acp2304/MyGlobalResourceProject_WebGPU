@@ -1,14 +1,13 @@
-// shaders/textured.frag.wgsl
+// shaders/textured.frag.wgsl - Iluminación básica con realce de selección
 struct VSOut {
   @location(0) vNormal:   vec3<f32>,
   @location(1) vUV:       vec2<f32>,
   @location(2) vWorldPos: vec3<f32>,
   @builtin(position) Position: vec4<f32>,
 };
-//@group(0) @binding(0) var<uniform> viewProj: mat4x4<f32>;
-@group(0) @binding(1) var<uniform> cameraPos: vec4<f32>;
 
-//@group(1) @binding(0) var<uniform> modelMatrix: mat4x4<f32>;
+// Grupo 0: cámara
+@group(0) @binding(1) var<uniform> cameraPos: vec4<f32>;
 
 struct LightData {
   lightDirIntensity: vec4<f32>,
@@ -16,12 +15,15 @@ struct LightData {
 
 @group(2) @binding(0) var<uniform> lightData: LightData;
 
+// Grupo 3: textura
 @group(3) @binding(0) var myTexture: texture_2d<f32>;
 @group(3) @binding(1) var mySampler: sampler;
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let albedo = textureSample(myTexture, mySampler, in.vUV).rgb;
+
+  // Iluminación difusa + especular sencilla
   let N = normalize(in.vNormal);
   let L = normalize(-lightData.lightDirIntensity.xyz);
   let V = normalize(cameraPos.xyz - in.vWorldPos);
