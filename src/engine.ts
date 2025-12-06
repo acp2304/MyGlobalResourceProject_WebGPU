@@ -193,7 +193,11 @@ export class Engine {
     });
   }
 
-  private createTextureGroup(device: GPUDevice, view: GPUTextureView, sampler: GPUSampler): void {
+  private createTextureGroup(
+    device: GPUDevice,
+    view: GPUTextureView,
+    sampler: GPUSampler,
+  ): GPUBindGroup {
     this.textureLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
@@ -208,6 +212,8 @@ export class Engine {
         { binding: 1, resource: sampler },
       ],
     });
+
+    return this.textureBindGroup;
   }
 
   private createPipeline(device: GPUDevice): GPURenderPipeline {

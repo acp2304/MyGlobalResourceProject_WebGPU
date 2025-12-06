@@ -11,9 +11,9 @@ struct VSOut {
 
 // Grupo 2: luz + selección
 struct LightingData {
-  lightDirIntensity: vec4<f32>;   // xyz: dirección de la luz, w: intensidad
-  highlightDirPower: vec4<f32>;   // xyz: dirección del realce, w: intensidad (0 = apagado)
-  highlightParams:   vec4<f32>;   // x: cosInterior, y: cosExterior, z/w: reservados
+  lightDirIntensity: vec4<f32>,   // xyz: dirección de la luz, w: intensidad
+  highlightDirPower: vec4<f32>,   // xyz: dirección del realce, w: intensidad (0 = apagado)
+  highlightParams:   vec4<f32>,   // x: cosInterior, y: cosExterior, z/w: reservados
 };
 @group(2) @binding(0) var<uniform> lighting: LightingData;
 
