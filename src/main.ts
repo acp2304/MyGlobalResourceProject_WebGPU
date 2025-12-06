@@ -6,39 +6,46 @@ const engine = new Engine(canvas);
 await engine.init();
 engine.start();
 
-const regions: RegionSelection[] = [
-  { label: 'Sin seleccion', lat: null, lon: null },
-  { label: 'Espana', lat: 40.4637, lon: -3.7492, radius: 8, intensity: 1.5 },
-  { label: 'Estados Unidos', lat: 37.0902, lon: -95.7129, radius: 8, intensity: 1.5 },
-  { label: 'Brasil', lat: -14.235, lon: -51.9253, radius: 8, intensity: 1.5 },
-  { label: 'Japon', lat: 36.2048, lon: 138.2529, radius: 8, intensity: 1.5 },
-  { label: 'Australia', lat: -25.2744, lon: 133.7751, radius: 8, intensity: 1.5 },
-];
-
 const selector = document.getElementById('country-select') as HTMLSelectElement;
 const latInput = document.getElementById('lat-input') as HTMLInputElement;
 const lonInput = document.getElementById('lon-input') as HTMLInputElement;
 const manualBtn = document.getElementById('select-coordinates') as HTMLButtonElement;
 const currentLabel = document.getElementById('current-selection') as HTMLSpanElement;
+const infoPanel = document.getElementById('country-info') as HTMLDivElement;
 
-regions.forEach((region, index) => {
+// Poblado dinámico de países desde el TopoJSON (vía engine)
+const countries = engine.getCountries();
+selector.innerHTML = '';
+const noneOption = document.createElement('option');
+noneOption.value = '';
+noneOption.textContent = 'Sin seleccion';
+selector.appendChild(noneOption);
+
+countries.forEach((country) => {
   const option = document.createElement('option');
-  option.value = index.toString();
-  option.textContent = region.label;
+  option.value = country.name;
+  option.textContent = country.name;
   selector.appendChild(option);
 });
-selector.value = '0';
+selector.value = '';
 
 selector.addEventListener('change', () => {
-  const selected = regions[Number(selector.value)];
+  const name = selector.value || null;
+  const selected = engine.selectCountry(name);
   if (!selected) {
+    engine.clearHighlight();
+    currentLabel.textContent = 'sin pais activo';
+    infoPanel.innerHTML = '<p>Selecciona un pais para ver su info.</p>';
     return;
   }
 
-  handleRegionSelection(engine, selected, 'preset');
-  currentLabel.textContent = selected.lat === null || selected.lon === null
-    ? 'sin pais activo'
-    : selected.label;
+  // Destacar zona aproximando con el centroide
+  engine.setHighlight(selected.centroid.lat, selected.centroid.lon, 6, 1.0);
+  currentLabel.textContent = selected.name;
+  infoPanel.innerHTML = `
+    <h3>${selected.name}</h3>
+    <pre>${JSON.stringify(selected.properties, null, 2)}</pre>
+  `;
 });
 
 manualBtn.addEventListener('click', () => {
@@ -59,5 +66,5 @@ manualBtn.addEventListener('click', () => {
 
   handleRegionSelection(engine, selection, 'manual');
   currentLabel.textContent = selection.label;
-  selector.value = '0';
+  selector.value = '';
 });

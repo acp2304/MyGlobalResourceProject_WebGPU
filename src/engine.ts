@@ -1,10 +1,13 @@
 import { mat4, vec3, vec4 } from 'gl-matrix';
 import { initWebGPU } from './initGPU';
 import { loadTexture } from './utils/loadTexture';
+import { loadCountryOutlines, type CountryOutline } from './countryLoader';
 import { Camera } from './camera';
 import { IcosahedronGeometry } from './geometry-system';
 import vertexShader from './common.vert.wgsl?raw';
 import fragmentShader from './textured.frag.wgsl?raw';
+import outlineVert from './outline.vert.wgsl?raw';
+import outlineFrag from './outline.frag.wgsl?raw';
 
 interface HighlightConfig {
   direction: vec3;
@@ -30,10 +33,18 @@ export class Engine {
   private lightingBindGroup!: GPUBindGroup;
   private textureLayout!: GPUBindGroupLayout;
   private textureBindGroup!: GPUBindGroup;
+  private outlineLayout!: GPUBindGroupLayout;
+  private outlineBindGroup!: GPUBindGroup;
+  private outlineColorBuffer!: GPUBuffer;
+  private outlinePipeline!: GPURenderPipeline;
 
   private modelMatrix = mat4.create();
   private modelBuffer!: GPUBuffer;
   private lightingBuffer!: GPUBuffer;
+  private outlineVertexBuffer!: GPUBuffer;
+  private outlineVertexCount = 0;
+  private countryOutlines: CountryOutline[] = [];
+  private selectedCountryIndex: number | null = null;
 
   private vertexBuffer!: GPUBuffer;
   private indexBuffer!: GPUBuffer;
@@ -54,7 +65,7 @@ export class Engine {
   private lastX = 0;
   private lastY = 0;
   private readonly orbitSpeed = 0.0025; // Menor sensibilidad de rotación
-  private readonly zoomStep = 0.25; // Zoom más suave por rueda
+  private readonly zoomStep = 0.1; // Zoom más suave por rueda
   private orbitVelAzimuth = 0;
   private orbitVelElevation = 0;
   private readonly orbitDamping = 0.9; // Desaceleración al soltar el botón
@@ -73,11 +84,13 @@ export class Engine {
     this.createCamera(device);
     this.createModelGroup(device);
     this.createLightingGroup(device);
+    await this.createOutlineResources(device);
 
     const { view, sampler } = await loadTexture(device, 'textures/earth.jpg');
     this.textureBindGroup = this.createTextureGroup(device, view, sampler);
 
     this.pipeline = this.createPipeline(device);
+    this.outlinePipeline = this.createOutlinePipeline(device);
     this.createGeometry(device);
 
     window.addEventListener('resize', () => this.onResize());
@@ -100,6 +113,21 @@ export class Engine {
 
   public clearHighlight(): void {
     this.highlight.intensity = 0;
+  }
+
+  // Selecciona un país por nombre, para pintar su contorno destacado
+  public selectCountry(name: string | null): CountryOutline | null {
+    if (name === null) {
+      this.selectedCountryIndex = null;
+      return null;
+    }
+    const idx = this.countryOutlines.findIndex((c) => c.name === name);
+    this.selectedCountryIndex = idx >= 0 ? idx : null;
+    return this.selectedCountryIndex !== null ? this.countryOutlines[this.selectedCountryIndex] : null;
+  }
+
+  public getCountries(): CountryOutline[] {
+    return this.countryOutlines;
   }
 
   private frame(_time: number): void {
@@ -158,6 +186,25 @@ export class Engine {
     pass.setVertexBuffer(0, this.vertexBuffer);
     pass.setIndexBuffer(this.indexBuffer, 'uint16');
     pass.drawIndexed(this.indexCount);
+
+    // Dibujar contornos base
+    if (this.outlineVertexCount > 0) {
+      pass.setPipeline(this.outlinePipeline);
+      pass.setBindGroup(0, this.cameraBindGroup);
+      // Color base tenue
+      this.device.queue.writeBuffer(this.outlineColorBuffer, 0, new Float32Array([0.25, 0.6, 0.9, 0.35]));
+      pass.setBindGroup(1, this.outlineBindGroup);
+      pass.setVertexBuffer(0, this.outlineVertexBuffer);
+      pass.draw(this.outlineVertexCount);
+
+      // Contorno resaltado
+      if (this.selectedCountryIndex !== null) {
+        const selected = this.countryOutlines[this.selectedCountryIndex];
+        this.device.queue.writeBuffer(this.outlineColorBuffer, 0, new Float32Array([1.0, 0.8, 0.2, 0.8]));
+        pass.setBindGroup(1, this.outlineBindGroup);
+        pass.draw(selected.count, 1, selected.start);
+      }
+    }
 
     pass.end();
     this.device.queue.submit([encoder.finish()]);
@@ -225,6 +272,39 @@ export class Engine {
     });
   }
 
+  // Carga contornos de países y prepara buffers + bind group para dibujarlos
+  private async createOutlineResources(device: GPUDevice): Promise<void> {
+    this.outlineLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      ],
+    });
+
+    this.outlineColorBuffer = device.createBuffer({
+      size: 4 * 4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.outlineBindGroup = device.createBindGroup({
+      layout: this.outlineLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.outlineColorBuffer } },
+      ],
+    });
+
+    const { vertices, outlines } = await loadCountryOutlines();
+    this.countryOutlines = outlines;
+    this.outlineVertexCount = vertices.length / 3;
+
+    this.outlineVertexBuffer = device.createBuffer({
+      size: vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
+    });
+    new Float32Array(this.outlineVertexBuffer.getMappedRange()).set(vertices);
+    this.outlineVertexBuffer.unmap();
+  }
+
   private createTextureGroup(
     device: GPUDevice,
     view: GPUTextureView,
@@ -280,6 +360,36 @@ export class Engine {
         targets: [{ format: this.format }],
       },
       primitive: { topology: 'triangle-list', cullMode: 'back' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    });
+  }
+
+  private createOutlinePipeline(device: GPUDevice): GPURenderPipeline {
+    const layout = device.createPipelineLayout({
+      bindGroupLayouts: [
+        this.cameraLayout, // usa viewProj
+        this.outlineLayout,
+      ],
+    });
+
+    return device.createRenderPipeline({
+      layout,
+      vertex: {
+        module: device.createShaderModule({ code: outlineVert }),
+        entryPoint: 'vs_main',
+        buffers: [
+          {
+            arrayStride: 3 * 4,
+            attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }],
+          },
+        ],
+      },
+      fragment: {
+        module: device.createShaderModule({ code: outlineFrag }),
+        entryPoint: 'fs_main',
+        targets: [{ format: this.format }],
+      },
+      primitive: { topology: 'line-list' },
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
   }

@@ -34,6 +34,33 @@
       min-width: 260px;
     }
 
+    .info-panel {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      padding: 1rem;
+      width: 260px;
+      background: rgba(15, 18, 36, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      backdrop-filter: blur(6px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+      overflow: auto;
+      max-height: calc(100vh - 2rem);
+    }
+
+    .info-panel h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1rem;
+    }
+
+    .info-panel pre, .info-panel p {
+      margin: 0;
+      white-space: pre-wrap;
+      font-size: 0.85rem;
+      color: #c7cee1;
+    }
+
     .ui-panel h1 {
       margin: 0 0 0.5rem;
       font-size: 1.1rem;
@@ -113,6 +140,11 @@
     </div>
     <button id="select-coordinates">Resaltar coordenadas</button>
     <small>Actual: <span id="current-selection">sin país activo</span></small>
+  </div>
+
+  <div class="info-panel" id="country-info">
+    <h3>Información del país</h3>
+    <p>Selecciona un país para ver sus datos del TopoJSON.</p>
   </div>
 
   <script type="module" src="/src/main.ts"></script>
